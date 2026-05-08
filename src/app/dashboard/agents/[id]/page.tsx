@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { useChat } from '@ai-sdk/react';
+import { supabase } from '@/lib/supabaseClient';
 import { 
   Activity, Zap, Shield, BarChart3, BookOpen, Clock, 
   Play, RotateCcw, Cpu, CheckCircle2, Loader2, Send, 
@@ -202,6 +204,7 @@ export default function AgentDetailPage() {
     grounding: ['Notion', 'Gmail'],
     flow: [] 
   };
+  const agentName = agentId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   const [activeTab, setActiveTab] = useState('Workflow');
   const [activeConfigTab, setActiveConfigTab] = useState('Settings');
@@ -212,7 +215,6 @@ export default function AgentDetailPage() {
   const [workflowNodes, setWorkflowNodes] = useState<any[]>(currentConfig.flow);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [messages, setMessages] = useState<{ role: 'agent' | 'user'; content: string }[]>([]);
   const [isActivated, setIsActivated] = useState(true);
   const [connectionStates, setConnectionStates] = useState<Record<string, 'unconnected' | 'connecting' | 'connected'>>({});
   const [isSimulating, setIsSimulating] = useState(false);
@@ -220,13 +222,27 @@ export default function AgentDetailPage() {
   const [simLogs, setSimLogs] = useState<string[]>([]);
   const [inbox, setInbox] = useState(mockEmails);
   const [availability, setAvailability] = useState(mockCalendar);
-  const [draftedReply, setDraftedReply] = useState<any>(null);
-  const [isToolExecuting, setIsToolExecuting] = useState(false);
-  const [toolResult, setToolResult] = useState<any>(null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [connectingService, setConnectingService] = useState<string | null>(null);
   const [connectEmail, setConnectEmail] = useState('ahmed.rakib@gmail.com');
   const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [providerToken, setProviderToken] = useState<string | null>(null);
+
+  // Initialize Vercel AI SDK Chat
+  const { messages, input, handleInputChange, handleSubmit, setMessages, isLoading: isToolExecuting } = useChat({
+    api: '/api/chat',
+    body: {
+      providerToken,
+      email: connectEmail,
+    },
+    initialMessages: [
+      { 
+        id: '1',
+        role: 'assistant', 
+        content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` 
+      }
+    ]
+  } as any) as any;
 
   const [tasks, setTasks] = useState([
     { id: 'T-1024', title: 'Q3 Financial Audit Preparation', priority: 'High', status: 'In Progress', deadline: 'May 12', type: 'Autonomous' },
@@ -235,7 +251,6 @@ export default function AgentDetailPage() {
     { id: 'T-1027', title: 'Tax Compliance Review', priority: 'Critical', status: 'Pending', deadline: 'May 15', type: 'Autonomous' },
   ]);
 
-  const agentName = agentId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   const tabs = [
     { name: 'Chat', icon: MessageSquare },
@@ -249,13 +264,18 @@ export default function AgentDetailPage() {
   ];
 
   useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([{ 
-        role: 'agent', 
-        content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` 
-      }]);
-    }
     setWorkflowNodes(currentConfig.flow);
+    
+    // Check for existing Supabase session with Google provider token
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.provider_token) {
+        setProviderToken(session.provider_token);
+        setConnectionStates(prev => ({ ...prev, 'Gmail': 'connected', 'Google Calendar': 'connected' }));
+        if (session.user?.email) {
+          setConnectEmail(session.user.email);
+        }
+      }
+    });
   }, [agentId]);
 
   const runSimulation = async () => {
@@ -290,43 +310,7 @@ export default function AgentDetailPage() {
     setSelectedNode((prev: any) => ({ ...prev, ...updates }));
   };
 
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim()) return;
-    
-    const newUserMsg = { role: 'user' as const, content: text };
-    setMessages(prev => [...prev, newUserMsg]);
-
-    if (agentId === 'executive-assistant') {
-      setIsToolExecuting(true);
-      
-      // Simulate real-world AI processing
-      await new Promise(r => setTimeout(r, 1500));
-      
-      if (text.toLowerCase().includes('email') || text.toLowerCase().includes('inbox')) {
-        setMessages(prev => [...prev, { 
-          role: 'agent', 
-          content: "I'm checking your Gmail inbox now. I've found a few high-priority emails, including one from John Smith about a partnership discussion." 
-        }]);
-      } else if (text.toLowerCase().includes('meeting') || text.toLowerCase().includes('schedule')) {
-        setMessages(prev => [...prev, { 
-          role: 'agent', 
-          content: "I've analyzed your schedule. You have a gap tomorrow afternoon. Here are some suggested times for the meeting:" 
-        }]);
-      } else {
-        setMessages(prev => [...prev, { 
-          role: 'agent', 
-          content: `I've processed your request for the ${agentName} workflow. I'm standing by to manage your emails and calendar.` 
-        }]);
-      }
-      
-      setIsToolExecuting(false);
-    } else {
-      // Default agent response
-      setTimeout(() => {
-        setMessages(prev => [...prev, { role: 'agent', content: `I've received your message. How else can I assist with the ${agentName} workflow?` }]);
-      }, 1000);
-    }
-  };
+  // Removed handleSendMessage, useChat provides handleSubmit
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -391,52 +375,80 @@ export default function AgentDetailPage() {
                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>• Connected to {currentConfig.grounding.join(', ')}</span>
               </div>
               <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                 {messages.map((msg, i) => (
-                   <div key={i} style={{ alignSelf: msg.role === 'agent' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ padding: '14px 18px', background: msg.role === 'agent' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: msg.role === 'agent' ? '4px' : '16px', borderTopRightRadius: msg.role === 'user' ? '4px' : '16px', border: msg.role === 'agent' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
+                 {messages?.map((msg: any, i: number) => (
+                    <div key={msg.id} style={{ alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ padding: '14px 18px', background: msg.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: msg.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: msg.role === 'user' ? '4px' : '16px', border: msg.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
                          {msg.content}
 
                          {/* Tool Execution Artifacts */}
-                         {agentId === 'executive-assistant' && msg.role === 'agent' && msg.content.includes("inbox") && (
-                           <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                              <div className="flex-between" style={{ marginBottom: '12px' }}>
-                                 <div className="flex-items-center" style={{ gap: '8px' }}>
-                                    <Globe size={14} color="#3b82f6" />
-                                    <span style={{ fontSize: '11px', fontWeight: '800' }}>GMAIL: RECENT INBOX</span>
-                                 </div>
+                         {msg.toolInvocations?.map((toolInvocation: any) => {
+                            if (toolInvocation.state !== 'result') return (
+                              <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <div className="flex-items-center" style={{ gap: '8px' }}>
+                                  <Loader2 size={14} className="animate-spin" color="#3b82f6" />
+                                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Executing {toolInvocation.toolName}...</span>
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                 {inbox.slice(0, 2).map(m => (
-                                   <div key={m.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
-                                      <p style={{ fontWeight: '700', marginBottom: '2px' }}>{m.subject}</p>
-                                      <p style={{ opacity: 0.5, fontSize: '10px' }}>From: {m.from}</p>
-                                   </div>
-                                 ))}
-                              </div>
-                           </div>
-                         )}
+                            );
 
-                         {agentId === 'executive-assistant' && msg.role === 'agent' && msg.content.includes("suggested times") && (
-                           <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                              <div className="flex-between" style={{ marginBottom: '12px' }}>
-                                 <div className="flex-items-center" style={{ gap: '8px' }}>
-                                    <Calendar size={14} color="#10b981" />
-                                    <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: AVAILABILITY</span>
-                                 </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                 {['11:00 AM', '1:30 PM', '4:00 PM'].map(t => (
-                                   <button key={t} style={{ padding: '6px 12px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', color: '#10b981', fontSize: '11px', cursor: 'pointer' }}>{t}</button>
-                                 ))}
-                              </div>
-                              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                 <button className="btn-primary" style={{ width: '100%', fontSize: '11px', padding: '8px' }}>Book for 1:30 PM</button>
-                              </div>
-                           </div>
-                         )}
+                            if (toolInvocation.toolName === 'readEmails') {
+                              return (
+                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                   <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                      <div className="flex-items-center" style={{ gap: '8px' }}>
+                                         <Globe size={14} color="#3b82f6" />
+                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>GMAIL: RECENT INBOX</span>
+                                      </div>
+                                   </div>
+                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                      {toolInvocation.result.emails ? toolInvocation.result.emails.slice(0, 3).map((m: any) => (
+                                        <div key={m.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
+                                           <p style={{ fontWeight: '700', marginBottom: '2px' }}>{m.subject}</p>
+                                           <p style={{ opacity: 0.5, fontSize: '10px' }}>From: {m.from}</p>
+                                        </div>
+                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{toolInvocation.result.error || 'No unread emails found.'}</p>}
+                                   </div>
+                                </div>
+                              );
+                            }
+
+                            if (toolInvocation.toolName === 'checkCalendar') {
+                              return (
+                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                   <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                      <div className="flex-items-center" style={{ gap: '8px' }}>
+                                         <Calendar size={14} color="#10b981" />
+                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: AVAILABILITY</span>
+                                      </div>
+                                   </div>
+                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                      {toolInvocation.result.events ? toolInvocation.result.events.map((e: any) => (
+                                        <div key={e.id} style={{ padding: '8px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', color: '#10b981', fontSize: '11px' }}>
+                                          <p style={{ fontWeight: 'bold' }}>{e.summary}</p>
+                                          <p style={{ opacity: 0.8 }}>{new Date(e.start).toLocaleString()}</p>
+                                        </div>
+                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{toolInvocation.result.error || 'No upcoming events.'}</p>}
+                                   </div>
+                                </div>
+                              );
+                            }
+
+                            if (toolInvocation.toolName === 'createMeeting' || toolInvocation.toolName === 'sendEmail') {
+                              return (
+                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                  <div className="flex-items-center" style={{ gap: '8px' }}>
+                                    <CheckCircle2 size={14} color="#10b981" />
+                                    <span style={{ fontSize: '11px', color: '#10b981' }}>{toolInvocation.result.success ? 'Action Completed Successfully' : toolInvocation.result.error}</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return null;
+                         })}
                       </div>
-                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', alignSelf: msg.role === 'agent' ? 'flex-start' : 'flex-end' }}>
-                         {msg.role === 'agent' ? agentName : 'You'} • Just now
+                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
+                         {msg.role === 'assistant' ? agentName : 'You'}
                       </span>
                    </div>
                  ))}
@@ -460,14 +472,15 @@ export default function AgentDetailPage() {
                       id="chat-input"
                       placeholder={`Message ${agentName}...`} 
                       style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '14px', outline: 'none', resize: 'none' }} 
-                      rows={2} 
+                      rows={2}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleSendMessage((e.target as HTMLTextAreaElement).value);
-                          (e.target as HTMLTextAreaElement).value = '';
+                          handleSubmit(e as any);
                         }
                       }}
+                      value={input}
+                      onChange={handleInputChange}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                        <button onClick={() => setShowAttachMenu(!showAttachMenu)} className="flex-items-center" style={{ gap: '8px', background: showAttachMenu ? 'rgba(59, 130, 246, 0.1)' : 'transparent', border: 'none', color: showAttachMenu ? '#3b82f6' : 'var(--text-dim)', cursor: 'pointer', fontSize: '12px', padding: '6px 12px', borderRadius: '8px' }}>
@@ -476,10 +489,8 @@ export default function AgentDetailPage() {
                        <button 
                          className="btn-primary" 
                          style={{ padding: '10px 28px', borderRadius: '10px', fontWeight: '700' }}
-                         onClick={() => {
-                           const input = document.getElementById('chat-input') as HTMLTextAreaElement;
-                           handleSendMessage(input.value);
-                           input.value = '';
+                         onClick={(e) => {
+                           handleSubmit(e as any);
                          }}
                        >
                           {isToolExecuting ? <Loader2 size={18} className="animate-spin" /> : 'Send'}
@@ -1151,11 +1162,22 @@ export default function AgentDetailPage() {
                    const Icon = source.icon;
                    const state = connectionStates[source.name] || (source.name === 'Notion' ? 'connected' : 'unconnected');
                    
-                   const handleConnect = () => {
+                   const handleConnect = async () => {
                      const triggerModalServices = ['Gmail', 'Google Calendar', 'Microsoft Outlook'];
                      if (triggerModalServices.includes(source.name)) {
-                        setConnectingService(source.name);
-                        setIsConnectModalOpen(true);
+                        if (source.name === 'Gmail' || source.name === 'Google Calendar') {
+                           const { error } = await supabase.auth.signInWithOAuth({
+                              provider: 'google',
+                              options: {
+                                 scopes: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar',
+                                 redirectTo: window.location.origin + window.location.pathname
+                              }
+                           });
+                           if (error) console.error("OAuth error:", error);
+                        } else {
+                           setConnectingService(source.name);
+                           setIsConnectModalOpen(true);
+                        }
                      } else {
                         setConnectionStates(prev => ({ ...prev, [source.name]: 'connecting' }));
                         setTimeout(() => {

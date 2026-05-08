@@ -37,7 +37,7 @@ export default function DashboardPage() {
         ].map((stat, i) => (
           <div key={i} className="stat-card">
             <div className="flex-items-center" style={{ gap: '8px', opacity: 0.6 }}>
-              {React.cloneElement(stat.icon as React.ReactElement, { size: 12 })}
+              {React.cloneElement(stat.icon as React.ReactElement<any>, { size: 12 })}
               <p className="uppercase-label">{stat.label}</p>
             </div>
             <p className="stat-value">{stat.val}</p>

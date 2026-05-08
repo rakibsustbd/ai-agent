@@ -97,7 +97,7 @@ export default function InboxPage() {
             key={f}
             onClick={() => setActiveFilter(f)}
             style={{ 
-              padding: '8px 16px', borderRadius: '8px', border: 'none', fontSize: '13px', fontWeight: '600',
+              padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
               background: activeFilter === f ? 'rgba(37, 99, 235, 0.1)' : 'rgba(255,255,255,0.03)',
               color: activeFilter === f ? '#3b82f6' : 'var(--text-dim)',
               cursor: 'pointer', transition: 'all 0.2s',

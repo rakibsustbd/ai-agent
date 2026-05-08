@@ -52,7 +52,7 @@ export default function DashboardLayout({
                    textDecoration: 'none', fontSize: '13px', fontWeight: '500'
                 }}
               >
-                {React.cloneElement(item.icon as React.ReactElement, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
+                {React.cloneElement(item.icon as React.ReactElement<any>, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
                 <span>{item.label}</span>
               </Link>
             );

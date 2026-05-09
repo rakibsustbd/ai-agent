@@ -227,6 +227,9 @@ export default function AgentDetailPage() {
   const [connectEmail, setConnectEmail] = useState('ahmed.rakib@gmail.com');
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [providerToken, setProviderToken] = useState<string | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('Medium');
+  const [newTaskType, setNewTaskType] = useState('Autonomous');
 
   // Initialize Vercel AI SDK Chat
   const { messages, input, handleInputChange, handleSubmit, setMessages, isLoading: isToolExecuting } = useChat({
@@ -250,6 +253,8 @@ export default function AgentDetailPage() {
     { id: 'T-1026', title: 'Vendor Payment Verification', priority: 'High', status: 'Completed', deadline: 'May 04', type: 'Autonomous' },
     { id: 'T-1027', title: 'Tax Compliance Review', priority: 'Critical', status: 'Pending', deadline: 'May 15', type: 'Autonomous' },
   ]);
+
+  const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
 
   const tabs = [
@@ -276,7 +281,141 @@ export default function AgentDetailPage() {
         }
       }
     });
+
+    // Fetch Tasks from Supabase
+    const fetchTasks = async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('agent_id', agentId);
+      
+      if (data && data.length > 0) {
+        setTasks(data.map(t => ({
+          id: t.id.substring(0, 8),
+          title: t.title,
+          priority: t.priority,
+          status: t.status,
+          deadline: t.deadline || 'No Deadline',
+          type: t.type || 'Autonomous'
+        })));
+      }
+    };
+
+    // Fetch Integrations from Supabase
+    const fetchIntegrations = async () => {
+      const { data, error } = await supabase
+        .from('integrations')
+        .select('*');
+      
+      if (data) {
+        const states: any = {};
+        data.forEach(item => {
+          states[item.app_name] = item.status === 'Connected' ? 'connected' : 'unconnected';
+        });
+        setConnectionStates(prev => ({ ...prev, ...states }));
+      }
+    };
+
+    // Fetch Knowledge from Supabase
+    const fetchKnowledge = async () => {
+      const { data, error } = await supabase
+        .from('knowledge')
+        .select('*');
+      
+      if (data) {
+        setKnowledgeItems(data);
+      }
+    };
+
+    fetchTasks();
+    fetchIntegrations();
+    fetchKnowledge();
   }, [agentId]);
+
+  const updateTaskStatus = async (taskId: string, newStatus: string) => {
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    
+    // In a real app, we would use the full UUID from Supabase. 
+    // Since we only display short IDs, we'd need to keep the full UUID in state.
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTaskTitle) return;
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert([
+        {
+          title: newTaskTitle,
+          priority: newTaskPriority,
+          status: 'Pending',
+          agent_id: agentId,
+          type: newTaskType,
+          deadline: 'May 12'
+        }
+      ])
+      .select();
+
+    if (data && data.length > 0) {
+      const t = data[0];
+      setTasks(prev => [{
+        id: t.id.substring(0, 8),
+        title: t.title,
+        priority: t.priority,
+        status: t.status,
+        deadline: t.deadline || 'No Deadline',
+        type: t.type || 'Autonomous'
+      }, ...prev]);
+    }
+    
+    setIsCreateTaskModalOpen(false);
+    setNewTaskTitle('');
+  };
+
+  const handleAllowAccess = async () => {
+    if (connectingService) {
+      setConnectionStates(prev => ({ ...prev, [connectingService]: 'connected' }));
+      
+      const { error } = await supabase
+        .from('integrations')
+        .upsert({ 
+          app_name: connectingService, 
+          status: 'Connected',
+          category: allSources.find(s => s.name === connectingService)?.category || 'Other'
+        }, { onConflict: 'app_name' });
+      
+      if (error) console.error("Integration persist error:", error);
+    }
+    setIsConnectModalOpen(false);
+  };
+
+  const handleAddKnowledge = async (fileName: string) => {
+    setIsUploading(true);
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setUploadProgress(progress);
+      if (progress >= 100) {
+        clearInterval(interval);
+        
+        // Save to Supabase
+        supabase.from('knowledge').insert([{
+          file_name: fileName,
+          file_size: Math.floor(Math.random() * 1024 * 1024 * 10), // Mock size
+          file_type: fileName.split('.').pop() || 'unknown',
+          storage_path: `knowledge/${fileName}`
+        }]).select().then(({ data }) => {
+          if (data) {
+            setKnowledgeItems(prev => [data[0], ...prev]);
+          }
+          setIsUploading(false);
+          setIsAddDataModalOpen(false);
+          setUploadProgress(0);
+        });
+      }
+    }, 200);
+  };
 
   const runSimulation = async () => {
     setIsSimulating(true);
@@ -785,9 +924,7 @@ export default function AgentDetailPage() {
                  <button className="btn-primary flex-items-center" style={{ gap: '8px' }} onClick={() => setIsAddDataModalOpen(true)}>
                     <Plus size={16} /> Add data
                  </button>
-              </div>
-
-              <div className="stat-card" style={{ padding: '0' }}>
+              </div>              <div className="stat-card" style={{ padding: '0' }}>
                  <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-main)', display: 'flex', gap: '16px' }}>
                     <div style={{ position: 'relative', flex: 1 }}>
                        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
@@ -799,21 +936,38 @@ export default function AgentDetailPage() {
                     <button className="btn-secondary flex-items-center" style={{ gap: '8px', fontSize: '12px' }}>
                        <Filter size={14} /> Status
                     </button>
-                    <button className="btn-secondary flex-items-center" style={{ gap: '8px', fontSize: '12px' }}>
-                       <UserSearch size={14} /> Owner
-                    </button>
                     <button className="btn-secondary" style={{ padding: '10px' }}><Layout size={14} /></button>
                  </div>
 
-                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 24px', textAlign: 'center' }}>
-                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-                       <BookOpen size={24} style={{ opacity: 0.4 }} />
-                    </div>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>This agent currently has no memory</h3>
-                    <p className="text-sm" style={{ opacity: 0.5, marginBottom: '24px', maxWidth: '400px' }}>Boost your agent's capabilities by incorporating relevant data into its memory. The agent will use this data during task execution.</p>
-                    <button className="btn-primary" onClick={() => setIsAddDataModalOpen(true)}>Add data</button>
-                 </div>
+                 {knowledgeItems.length > 0 ? (
+                   <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      {knowledgeItems.map((item, i) => (
+                        <div key={item.id} style={{ padding: '20px 24px', borderBottom: i === knowledgeItems.length - 1 ? 'none' : '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                              <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                 <FileText size={20} style={{ opacity: 0.5 }} />
+                              </div>
+                              <div>
+                                 <h4 style={{ fontSize: '14px', fontWeight: '700' }}>{item.file_name}</h4>
+                                 <p style={{ fontSize: '11px', opacity: 0.4 }}>{(item.file_size / 1024 / 1024).toFixed(2)} MB • {new Date(item.created_at).toLocaleDateString()}</p>
+                              </div>
+                           </div>
+                           <button className="btn-secondary" style={{ padding: '8px 12px', fontSize: '11px' }}>Delete</button>
+                        </div>
+                      ))}
+                   </div>
+                 ) : (
+                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 24px', textAlign: 'center' }}>
+                      <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
+                         <BookOpen size={24} style={{ opacity: 0.4 }} />
+                      </div>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>This agent currently has no memory</h3>
+                      <p className="text-sm" style={{ opacity: 0.5, marginBottom: '24px', maxWidth: '400px' }}>Boost your agent's capabilities by incorporating relevant data into its memory. The agent will use this data during task execution.</p>
+                      <button className="btn-primary" onClick={() => setIsAddDataModalOpen(true)}>Add data</button>
+                   </div>
+                 )}
               </div>
+>
            </div>
          )}
 
@@ -1269,12 +1423,7 @@ export default function AgentDetailPage() {
 
               <div style={{ display: 'flex', gap: '12px' }}>
                  <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setIsConnectModalOpen(false)}>Cancel</button>
-                 <button className="btn-primary" style={{ flex: 2 }} onClick={() => {
-                    if (connectingService) {
-                      setConnectionStates(prev => ({ ...prev, [connectingService]: 'connected' }));
-                    }
-                    setIsConnectModalOpen(false);
-                 }}>Allow Access</button>
+                 <button className="btn-primary" style={{ flex: 2 }} onClick={handleAllowAccess}>Allow Access</button>
               </div>
            </div>
         </div>
@@ -1300,22 +1449,7 @@ export default function AgentDetailPage() {
                    <div 
                      style={{ height: '220px', border: '2px dashed rgba(255,255,255,0.1)', borderRadius: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', background: 'rgba(255,255,255,0.01)', cursor: 'pointer', transition: 'all 0.2s ease' }}
                      onDragOver={(e) => e.preventDefault()}
-                     onClick={() => {
-                        setIsUploading(true);
-                        let progress = 0;
-                        const interval = setInterval(() => {
-                           progress += 5;
-                           setUploadProgress(progress);
-                           if (progress >= 100) {
-                              clearInterval(interval);
-                              setTimeout(() => {
-                                 setIsUploading(false);
-                                 setIsAddDataModalOpen(false);
-                                 setUploadProgress(0);
-                              }, 1000);
-                           }
-                        }, 100);
-                     }}
+                     onClick={() => handleAddKnowledge('Financial_Audit_Q3.pdf')}
                    >
                       <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(37, 99, 235, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563EB' }}>
                          <AttachmentIcon size={24} />
@@ -1381,6 +1515,8 @@ export default function AgentDetailPage() {
                  <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', opacity: 0.5, display: 'block', marginBottom: '8px' }}>Mission Objective</label>
                     <input 
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
                       placeholder="e.g. Audit Q3 Expense Reports"
                       style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none' }}
                     />
@@ -1389,7 +1525,10 @@ export default function AgentDetailPage() {
                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div>
                        <label style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', opacity: 0.5, display: 'block', marginBottom: '8px' }}>Priority</label>
-                       <select style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none' }}>
+                       <select 
+                         value={newTaskPriority}
+                         onChange={(e) => setNewTaskPriority(e.target.value)}
+                         style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none' }}>
                           <option>Low</option>
                           <option>Medium</option>
                           <option>High</option>
@@ -1398,7 +1537,10 @@ export default function AgentDetailPage() {
                     </div>
                     <div>
                        <label style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', opacity: 0.5, display: 'block', marginBottom: '8px' }}>Execution Mode</label>
-                       <select style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none' }}>
+                       <select 
+                         value={newTaskType}
+                         onChange={(e) => setNewTaskType(e.target.value)}
+                         style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none' }}>
                           <option>Autonomous</option>
                           <option>Human-Verified</option>
                        </select>
@@ -1415,10 +1557,7 @@ export default function AgentDetailPage() {
 
                  <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                     <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setIsCreateTaskModalOpen(false)}>Cancel</button>
-                    <button className="btn-primary" style={{ flex: 2 }} onClick={() => {
-                       setIsCreateTaskModalOpen(false);
-                       // Add logic to add task if needed
-                    }}>Launch Mission</button>
+                    <button className="btn-primary" style={{ flex: 2 }} onClick={handleCreateTask}>Launch Mission</button>
                  </div>
               </div>
            </div>

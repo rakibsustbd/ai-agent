@@ -13,17 +13,19 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: AuthModalProps) {
-  const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const router = useRouter();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       if (mode === 'signup') {
@@ -35,7 +37,13 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
           },
         });
         if (error) throw error;
-        setError('Check your email for the confirmation link!');
+        setSuccess('Check your email for the confirmation link!');
+      } else if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard/reset-password`,
+        });
+        if (error) throw error;
+        setSuccess('Password reset link sent to your email!');
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -101,10 +109,12 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
                 <Zap size={24} fill="white" />
               </div>
               <h2 style={{ fontSize: '24px', fontWeight: '800', marginBottom: '8px' }}>
-                {mode === 'login' ? 'Welcome Back' : 'Create Account'}
+                {mode === 'login' ? 'Welcome Back' : mode === 'signup' ? 'Create Account' : 'Reset Password'}
               </h2>
               <p style={{ fontSize: '14px', color: '#7D8590' }}>
-                {mode === 'login' ? 'Enter your credentials to access the console' : 'Start building your virtual workforce today'}
+                {mode === 'login' ? 'Enter your credentials to access the console' : 
+                 mode === 'signup' ? 'Start building your virtual workforce today' : 
+                 'We will send you a secure link to reset your password'}
               </p>
             </div>
 
@@ -127,27 +137,46 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
                 </div>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#484F58', marginBottom: '8px' }}>Password</label>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#484F58' }} />
-                  <input 
-                    type="password" 
-                    required 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    style={{ 
-                      width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', 
-                      borderRadius: '12px', padding: '14px 14px 14px 44px', color: 'white', outline: 'none' 
-                    }}
-                  />
+              {mode !== 'forgot' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#484F58' }}>Password</label>
+                    {mode === 'login' && (
+                      <button 
+                        type="button" 
+                        onClick={() => setMode('forgot')}
+                        style={{ background: 'transparent', border: 'none', color: '#3B82F6', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
+                      >
+                        Forgot Password?
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#484F58' }} />
+                    <input 
+                      type="password" 
+                      required 
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      style={{ 
+                        width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', 
+                        borderRadius: '12px', padding: '14px 14px 14px 44px', color: 'white', outline: 'none' 
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {error && (
                 <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#EF4444', fontSize: '13px', textAlign: 'center' }}>
                   {error}
+                </div>
+              )}
+
+              {success && (
+                <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#10B981', fontSize: '13px', textAlign: 'center' }}>
+                  {success}
                 </div>
               )}
 
@@ -159,40 +188,44 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
               >
                 {loading ? <Loader2 size={20} className="animate-spin" /> : (
                   <>
-                    {mode === 'login' ? 'Sign In' : 'Create Account'}
+                    {mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
                     <ArrowRight size={18} />
                   </>
                 )}
               </button>
             </form>
 
-            <div style={{ margin: '24px 0', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }} />
-              <span style={{ fontSize: '12px', color: '#484F58', fontWeight: '600' }}>OR CONTINUE WITH</span>
-              <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }} />
-            </div>
+            {mode !== 'forgot' && (
+              <>
+                <div style={{ margin: '24px 0', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }} />
+                  <span style={{ fontSize: '12px', color: '#484F58', fontWeight: '600' }}>OR CONTINUE WITH</span>
+                  <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }} />
+                </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <button 
-                type="button"
-                onClick={() => handleOAuth('github')}
-                className="btn-secondary" 
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}
-              >
-                <Code size={16} /> GitHub
-              </button>
-              <button 
-                type="button"
-                onClick={() => handleOAuth('google')}
-                className="btn-secondary" 
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}
-              >
-                <Globe size={16} /> Google
-              </button>
-            </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <button 
+                    type="button"
+                    onClick={() => handleOAuth('github')}
+                    className="btn-secondary" 
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    <Code size={16} /> GitHub
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => handleOAuth('google')}
+                    className="btn-secondary" 
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    <Globe size={16} /> Google
+                  </button>
+                </div>
+              </>
+            )}
 
             <div style={{ marginTop: '32px', textAlign: 'center', fontSize: '14px', color: '#7D8590' }}>
-              {mode === 'login' ? "Don't have an account?" : "Already have an account?"} {' '}
+              {mode === 'login' ? "Don't have an account?" : mode === 'signup' ? "Already have an account?" : "Remembered your password?"} {' '}
               <button 
                 onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
                 style={{ background: 'transparent', border: 'none', color: '#3B82F6', fontWeight: '700', cursor: 'pointer' }}

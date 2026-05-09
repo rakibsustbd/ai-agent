@@ -212,57 +212,6 @@ export default function LandingPage() {
         onClose={() => setIsAuthModalOpen(false)} 
         initialMode={authMode} 
       />
-
-      <style>{`
-        .text-gradient {
-          background: linear-gradient(135deg, #FFF 0%, #3B82F6 50%, #8B5CF6 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-        .glow-button {
-          background: #2563EB !important;
-          color: white !important;
-          border-radius: 12px !important;
-          font-weight: 700 !important;
-          box-shadow: 0 0 20px rgba(37, 99, 235, 0.4) !important;
-          transition: all 0.2s ease !important;
-          border: none !important;
-        }
-        .glow-button:hover {
-          box-shadow: 0 0 30px rgba(37, 99, 235, 0.6) !important;
-          transform: scale(1.02) !important;
-        }
-        .nav-btn {
-          color: #7D8590;
-          text-decoration: none;
-          font-weight: 500;
-          transition: color 0.2s ease;
-        }
-        .nav-btn:hover {
-          color: white;
-        }
-        .glass {
-          background: rgba(255, 255, 255, 0.03);
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 24px;
-        }
-        .glass-hover:hover {
-          background: rgba(255, 255, 255, 0.05);
-          border-color: rgba(255, 255, 255, 0.15);
-          transform: translateY(-4px);
-        }
-        .landing-grid {
-          background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
-          background-size: 40px 40px;
-        }
-        body {
-          margin: 0;
-          padding: 0;
-          background: #02040A;
-        }
-      `}</style>
     </div>
   );
 }

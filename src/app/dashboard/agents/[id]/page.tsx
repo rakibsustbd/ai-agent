@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Activity, Zap, Shield, BarChart3, BookOpen, Clock, 

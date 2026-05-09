@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useChat } from '@ai-sdk/react';
+import { useChat } from 'ai/react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Activity, Zap, Shield, BarChart3, BookOpen, Clock, 
@@ -232,7 +232,7 @@ export default function AgentDetailPage() {
   const [newTaskType, setNewTaskType] = useState('Autonomous');
 
   // Initialize Vercel AI SDK Chat
-  const { messages, input, handleInputChange, handleSubmit, setMessages, isLoading: isToolExecuting } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, append, setMessages, isLoading: isToolExecuting } = useChat({
     api: '/api/chat',
     body: {
       providerToken,
@@ -246,6 +246,15 @@ export default function AgentDetailPage() {
       }
     ]
   } as any) as any;
+
+  const onChatSubmit = (e: any) => {
+    if (typeof handleSubmit === 'function') {
+      handleSubmit(e);
+    } else if (typeof append === 'function') {
+      e.preventDefault();
+      append({ role: 'user', content: input });
+    }
+  };
 
   const [tasks, setTasks] = useState([
     { id: 'T-1024', title: 'Q3 Financial Audit Preparation', priority: 'High', status: 'In Progress', deadline: 'May 12', type: 'Autonomous' },
@@ -624,7 +633,7 @@ export default function AgentDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleSubmit(e as any);
+                          onChatSubmit(e as any);
                         }
                       }}
                       value={input}
@@ -638,7 +647,7 @@ export default function AgentDetailPage() {
                          className="btn-primary" 
                          style={{ padding: '10px 28px', borderRadius: '10px', fontWeight: '700' }}
                          onClick={(e) => {
-                           handleSubmit(e as any);
+                           onChatSubmit(e as any);
                          }}
                        >
                           {isToolExecuting ? <Loader2 size={18} className="animate-spin" /> : 'Send'}

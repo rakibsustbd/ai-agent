@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, Users, BookOpen, Layers, Bell, Search, 
   Settings, HelpCircle, Command, Plus, ClipboardList, Sparkles,
-  Paperclip, Image as ImageIcon, FileText, X
+  Paperclip, Image as ImageIcon, FileText, X, LogOut
 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function DashboardLayout({
   children,
@@ -15,6 +16,22 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [user, setUser] = useState<any>(null);
+
+  const router = useRouter();
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+    };
+    getUser();
+  }, [supabase]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/');
+  };
 
   return (
     <div className="app-container">
@@ -63,16 +80,20 @@ export default function DashboardLayout({
           <Link href="#" className="nav-btn" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', color: 'var(--text-muted)', textDecoration: 'none', fontSize: '13px' }}>
             <Settings size={18} /> <span>Settings</span>
           </Link>
-          <Link href="#" className="nav-btn" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', color: 'var(--text-muted)', textDecoration: 'none', fontSize: '13px' }}>
-            <HelpCircle size={18} /> <span>Help Center</span>
-          </Link>
+          <button 
+            onClick={handleSignOut}
+            className="nav-btn" 
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'none', fontSize: '13px', width: '100%' }}
+          >
+            <LogOut size={18} /> <span>Sign Out</span>
+          </button>
           
           <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-main)', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg, #1e293b, #0f172a)', border: '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', color: '#3b82f6' }}>
-              AR
+              {user?.email?.substring(0, 2).toUpperCase() ?? '??'}
             </div>
             <div style={{ overflow: 'hidden' }}>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'white', margin: 0 }}>Ahmed Rakib</p>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: 'white', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email?.split('@')[0] ?? 'Guest'}</p>
               <p className="uppercase-label" style={{ fontSize: '9px', opacity: 0.5, margin: 0 }}>Pro Plan</p>
             </div>
           </div>

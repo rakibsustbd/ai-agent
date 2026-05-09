@@ -13,7 +13,7 @@ export default function RootLayout({
 }>) {
   return (
      <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning className="antigravity-scroll-lock">
+      <body suppressHydrationWarning>
         <div className="mesh-bg" />
         {children}
       </body>

@@ -30,7 +30,17 @@ export async function GET(request: NextRequest) {
         },
       }
     );
-    await supabase.auth.exchangeCodeForSession(code);
+    const { data } = await supabase.auth.exchangeCodeForSession(code);
+    
+    // Save provider_token for Gmail/Calendar tools if it exists
+    if (data.session?.provider_token) {
+      cookieStore.set('provider_token', data.session.provider_token, {
+        path: '/',
+        httpOnly: false, // Allow client to read it for API calls
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 3600, // 1 hour
+      });
+    }
   }
 
   // URL to redirect to after sign in process completes

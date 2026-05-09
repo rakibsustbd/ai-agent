@@ -271,12 +271,21 @@ export default function AgentDetailPage() {
   useEffect(() => {
     setWorkflowNodes(currentConfig.flow);
     
+    const getCookie = (name: string) => {
+      if (typeof document === 'undefined') return null;
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift();
+      return null;
+    };
+
     // Check for existing Supabase session with Google provider token
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.provider_token) {
-        setProviderToken(session.provider_token);
+      const token = session?.provider_token || getCookie('provider_token');
+      if (token) {
+        setProviderToken(token);
         setConnectionStates(prev => ({ ...prev, 'Gmail': 'connected', 'Google Calendar': 'connected' }));
-        if (session.user?.email) {
+        if (session?.user?.email) {
           setConnectEmail(session.user.email);
         }
       }
@@ -965,11 +974,10 @@ export default function AgentDetailPage() {
                       <p className="text-sm" style={{ opacity: 0.5, marginBottom: '24px', maxWidth: '400px' }}>Boost your agent's capabilities by incorporating relevant data into its memory. The agent will use this data during task execution.</p>
                       <button className="btn-primary" onClick={() => setIsAddDataModalOpen(true)}>Add data</button>
                    </div>
-                 )}
-              </div>
->
-           </div>
-         )}
+                  )}
+               </div>
+            </div>
+          )}
 
          {/* CONFIGURATIONS TAB (WIRED TO SAMPLES) */}
           {activeTab === 'Notifications' && (

@@ -66,6 +66,13 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
         provider,
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: provider === 'google' ? {
+            access_type: 'offline',
+            prompt: 'consent',
+          } : undefined,
+          scopes: provider === 'google' 
+            ? 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events email profile openid' 
+            : undefined,
         },
       });
       if (error) throw error;

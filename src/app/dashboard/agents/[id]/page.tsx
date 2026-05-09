@@ -231,8 +231,10 @@ export default function AgentDetailPage() {
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
 
+  const [chatInput, setChatInput] = useState('');
+
   // Initialize Vercel AI SDK Chat
-  const { messages, input, handleInputChange, handleSubmit, setMessages, isLoading: isToolExecuting } = useChat({
+  const { messages, append, setMessages, isLoading: isToolExecuting } = useChat({
     api: '/api/chat',
     body: {
       providerToken,
@@ -247,10 +249,11 @@ export default function AgentDetailPage() {
     ]
   });
 
-  const onChatSubmit = (e: React.FormEvent | React.KeyboardEvent) => {
-    e.preventDefault();
-    if (input && typeof input === 'string' && input.trim()) {
-      handleSubmit(e as any);
+  const onChatSubmit = (e: any) => {
+    e?.preventDefault?.();
+    if (chatInput.trim() && !isToolExecuting) {
+      append({ role: 'user', content: chatInput });
+      setChatInput('');
     }
   };
 
@@ -630,11 +633,13 @@ export default function AgentDetailPage() {
                       rows={2}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
-                          onChatSubmit(e as any);
+                          e.preventDefault();
+                          append({ role: 'user', content: chatInput });
+                          setChatInput('');
                         }
                       }}
-                      value={input}
-                      onChange={handleInputChange}
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                        <button onClick={() => setShowAttachMenu(!showAttachMenu)} className="flex-items-center" style={{ gap: '8px', background: showAttachMenu ? 'rgba(59, 130, 246, 0.1)' : 'transparent', border: 'none', color: showAttachMenu ? '#3b82f6' : 'var(--text-dim)', cursor: 'pointer', fontSize: '12px', padding: '6px 12px', borderRadius: '8px' }}>

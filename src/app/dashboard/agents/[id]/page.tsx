@@ -249,7 +249,7 @@ export default function AgentDetailPage() {
 
   const onChatSubmit = (e: React.FormEvent | React.KeyboardEvent) => {
     e.preventDefault();
-    if (input.trim()) {
+    if (input && typeof input === 'string' && input.trim()) {
       handleSubmit(e as any);
     }
   };

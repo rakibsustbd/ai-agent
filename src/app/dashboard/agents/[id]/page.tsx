@@ -230,11 +230,10 @@ export default function AgentDetailPage() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
-
   const [chatInput, setChatInput] = useState('');
 
   // Initialize Vercel AI SDK Chat
-  const { messages, append, setMessages, isLoading: isToolExecuting } = useChat({
+  const { messages, sendMessage, setMessages, status } = useChat({
     api: '/api/chat',
     body: {
       providerToken,
@@ -249,10 +248,12 @@ export default function AgentDetailPage() {
     ]
   });
 
+  const isToolExecuting = status === 'submitted' || status === 'streaming';
+
   const onChatSubmit = (e: any) => {
     e?.preventDefault?.();
     if (chatInput.trim() && !isToolExecuting) {
-      append({ role: 'user', content: chatInput });
+      sendMessage({ text: chatInput });
       setChatInput('');
     }
   };
@@ -634,8 +635,10 @@ export default function AgentDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          append({ role: 'user', content: chatInput });
-                          setChatInput('');
+                          if (chatInput.trim() && !isToolExecuting) {
+                            sendMessage({ text: chatInput });
+                            setChatInput('');
+                          }
                         }
                       }}
                       value={chatInput}

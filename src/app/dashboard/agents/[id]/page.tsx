@@ -232,7 +232,7 @@ export default function AgentDetailPage() {
   const [newTaskType, setNewTaskType] = useState('Autonomous');
 
   // Initialize Vercel AI SDK Chat
-  const { messages, input, handleInputChange, handleSubmit, append, setMessages, isLoading: isToolExecuting } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, setMessages, isLoading: isToolExecuting } = useChat({
     api: '/api/chat',
     body: {
       providerToken,
@@ -245,14 +245,12 @@ export default function AgentDetailPage() {
         content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` 
       }
     ]
-  } as any) as any;
+  });
 
-  const onChatSubmit = (e: any) => {
-    if (typeof handleSubmit === 'function') {
-      handleSubmit(e);
-    } else if (typeof append === 'function') {
-      e.preventDefault();
-      append({ role: 'user', content: input });
+  const onChatSubmit = (e: React.FormEvent | React.KeyboardEvent) => {
+    e.preventDefault();
+    if (input.trim()) {
+      handleSubmit(e as any);
     }
   };
 
@@ -632,7 +630,6 @@ export default function AgentDetailPage() {
                       rows={2}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
                           onChatSubmit(e as any);
                         }
                       }}
@@ -646,9 +643,7 @@ export default function AgentDetailPage() {
                        <button 
                          className="btn-primary" 
                          style={{ padding: '10px 28px', borderRadius: '10px', fontWeight: '700' }}
-                         onClick={(e) => {
-                           onChatSubmit(e as any);
-                         }}
+                         onClick={onChatSubmit}
                        >
                           {isToolExecuting ? <Loader2 size={18} className="animate-spin" /> : 'Send'}
                        </button>

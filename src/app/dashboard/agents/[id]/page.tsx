@@ -230,10 +230,8 @@ export default function AgentDetailPage() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
-  const [chatInput, setChatInput] = useState('');
-
   // Initialize Vercel AI SDK Chat
-  const { messages, sendMessage, setMessages, status } = useChat({
+  const { messages, input, setInput, handleInputChange, handleSubmit, append, setMessages, isLoading, error } = useChat({
     api: '/api/chat',
     body: {
       providerToken,
@@ -243,18 +241,23 @@ export default function AgentDetailPage() {
       { 
         id: '1',
         role: 'assistant', 
-        content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` 
+        content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?`
       }
     ]
   });
 
-  const isToolExecuting = status === 'submitted' || status === 'streaming';
-
-  const onChatSubmit = (e: any) => {
+  const handleSend = async (e?: any) => {
     e?.preventDefault?.();
-    if (chatInput.trim() && !isToolExecuting) {
-      sendMessage({ text: chatInput });
-      setChatInput('');
+    if (!input.trim() || isLoading) return;
+    
+    const currentInput = input;
+    setInput(''); // Optimistically clear input
+    
+    try {
+      await append({ role: 'user', content: currentInput });
+    } catch (err) {
+      console.error("Send error:", err);
+      setInput(currentInput); // Restore on error
     }
   };
 
@@ -489,7 +492,13 @@ export default function AgentDetailPage() {
             </div>
          </div>
          <div className="flex-items-center" style={{ gap: '12px' }}>
-            <button className="btn-secondary" style={{ fontSize: '12px' }}>Reset Logic</button>
+             <button 
+               className="btn-secondary" 
+               style={{ fontSize: '12px' }}
+               onClick={() => setMessages([])}
+             >
+               Reset Logic
+             </button>
             <button className="btn-primary flex-items-center" style={{ gap: '8px', fontSize: '12px' }}>
                <Play size={14} /> Deploy Changes
             </button>
@@ -534,25 +543,30 @@ export default function AgentDetailPage() {
                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>• Connected to {currentConfig.grounding.join(', ')}</span>
               </div>
               <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                 {messages?.map((msg: any, i: number) => (
+                 {messages?.map((msg: any) => (
                     <div key={msg.id} style={{ alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <div style={{ padding: '14px 18px', background: msg.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: msg.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: msg.role === 'user' ? '4px' : '16px', border: msg.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
-                         {msg.content}
+                          {msg.content && <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
+                          
+                          {msg.toolInvocations?.map((toolInvocation: any) => {
+                            const { toolName, toolCallId, state } = toolInvocation;
+                            const isResult = state === 'result';
+                            const result = isResult ? toolInvocation.result : null;
 
-                         {/* Tool Execution Artifacts */}
-                         {msg.toolInvocations?.map((toolInvocation: any) => {
-                            if (toolInvocation.state !== 'result') return (
-                              <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                <div className="flex-items-center" style={{ gap: '8px' }}>
-                                  <Loader2 size={14} className="animate-spin" color="#3b82f6" />
-                                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Executing {toolInvocation.toolName}...</span>
-                                </div>
-                              </div>
-                            );
-
-                            if (toolInvocation.toolName === 'readEmails') {
+                            if (state === 'call') {
                               return (
-                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                  <div className="flex-items-center" style={{ gap: '8px' }}>
+                                    <Loader2 size={14} className="animate-spin" color="#3b82f6" />
+                                    <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Executing {toolName}...</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (toolName === 'readEmails') {
+                              return (
+                                <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
                                       <div className="flex-items-center" style={{ gap: '8px' }}>
                                          <Globe size={14} color="#3b82f6" />
@@ -560,59 +574,76 @@ export default function AgentDetailPage() {
                                       </div>
                                    </div>
                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                      {toolInvocation.result.emails ? toolInvocation.result.emails.slice(0, 3).map((m: any) => (
+                                      {result?.emails ? result.emails.slice(0, 3).map((m: any) => (
                                         <div key={m.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
                                            <p style={{ fontWeight: '700', marginBottom: '2px' }}>{m.subject}</p>
                                            <p style={{ opacity: 0.5, fontSize: '10px' }}>From: {m.from}</p>
                                         </div>
-                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{toolInvocation.result.error || 'No unread emails found.'}</p>}
+                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{result?.error || 'No unread emails found.'}</p>}
                                    </div>
                                 </div>
                               );
                             }
 
-                            if (toolInvocation.toolName === 'checkCalendar') {
+                            if (toolName === 'checkCalendar') {
                               return (
-                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
                                       <div className="flex-items-center" style={{ gap: '8px' }}>
                                          <Calendar size={14} color="#10b981" />
-                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: AVAILABILITY</span>
+                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: UPCOMING</span>
                                       </div>
                                    </div>
                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                      {toolInvocation.result.events ? toolInvocation.result.events.map((e: any) => (
-                                        <div key={e.id} style={{ padding: '8px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', color: '#10b981', fontSize: '11px' }}>
-                                          <p style={{ fontWeight: 'bold' }}>{e.summary}</p>
-                                          <p style={{ opacity: 0.8 }}>{new Date(e.start).toLocaleString()}</p>
+                                      {result?.events ? result.events.slice(0, 3).map((ev: any) => (
+                                        <div key={ev.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
+                                           <p style={{ fontWeight: '700', marginBottom: '2px' }}>{ev.summary}</p>
+                                           <p style={{ opacity: 0.5, fontSize: '10px' }}>{new Date(ev.start).toLocaleString()}</p>
                                         </div>
-                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{toolInvocation.result.error || 'No upcoming events.'}</p>}
+                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{result?.error || 'No upcoming events.'}</p>}
                                    </div>
                                 </div>
                               );
                             }
 
-                            if (toolInvocation.toolName === 'createMeeting' || toolInvocation.toolName === 'sendEmail') {
+                            if (toolName === 'createMeeting' || toolName === 'sendEmail') {
                               return (
-                                <div key={toolInvocation.toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                                   <div className="flex-items-center" style={{ gap: '8px' }}>
                                     <CheckCircle2 size={14} color="#10b981" />
-                                    <span style={{ fontSize: '11px', color: '#10b981' }}>{toolInvocation.result.success ? 'Action Completed Successfully' : toolInvocation.result.error}</span>
+                                    <span style={{ fontSize: '11px', color: '#10b981' }}>{result?.success ? 'Action Completed Successfully' : result?.error || 'Action failed'}</span>
                                   </div>
                                 </div>
                               );
                             }
 
                             return null;
-                         })}
+                          })}
                       </div>
+
+                      {isLoading && (
+                        <div style={{ alignSelf: 'flex-start', display: 'flex', gap: '8px', alignItems: 'center', opacity: 0.5 }}>
+                           <Loader2 size={14} className="animate-spin" />
+                           <span style={{ fontSize: '12px' }}>Thinking...</span>
+                        </div>
+                      )}
+
+                      {error && (
+                        <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '12px', marginTop: '12px' }}>
+                           <strong>Error:</strong> {error.message || 'The agent failed to respond. Please check your API key and connection.'}
+                        </div>
+                      )}
+
                       <span style={{ fontSize: '10px', color: 'var(--text-dim)', alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
                          {msg.role === 'assistant' ? agentName : 'You'}
                       </span>
                    </div>
                  ))}
               </div>
-              <div style={{ padding: '24px', borderTop: '1px solid var(--border-main)', background: 'rgba(2, 4, 10, 0.4)', position: 'relative' }}>
+               <form 
+                 onSubmit={handleSend}
+                 style={{ padding: '24px', borderTop: '1px solid var(--border-main)', background: 'rgba(2, 4, 10, 0.4)', position: 'relative' }}
+               >
                  {showAttachMenu && (
                    <div style={{ position: 'absolute', bottom: '100px', left: '24px', background: '#0f172a', border: '1px solid var(--border-main)', borderRadius: '12px', padding: '8px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '4px', width: '200px', zIndex: 100 }}>
                       <button className="flex-items-center" style={{ gap: '10px', padding: '10px', background: 'transparent', border: 'none', color: 'white', fontSize: '13px', cursor: 'pointer', textAlign: 'left', borderRadius: '8px' }}>
@@ -635,29 +666,26 @@ export default function AgentDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          if (chatInput.trim() && !isToolExecuting) {
-                            sendMessage({ text: chatInput });
-                            setChatInput('');
-                          }
+                          handleSend(e);
                         }
                       }}
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
+                      value={input}
+                      onChange={handleInputChange}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                        <button onClick={() => setShowAttachMenu(!showAttachMenu)} className="flex-items-center" style={{ gap: '8px', background: showAttachMenu ? 'rgba(59, 130, 246, 0.1)' : 'transparent', border: 'none', color: showAttachMenu ? '#3b82f6' : 'var(--text-dim)', cursor: 'pointer', fontSize: '12px', padding: '6px 12px', borderRadius: '8px' }}>
                           {showAttachMenu ? <X size={18} /> : <AttachmentIcon size={18} />} Attach
                        </button>
                        <button 
+                         type="submit"
                          className="btn-primary" 
                          style={{ padding: '10px 28px', borderRadius: '10px', fontWeight: '700' }}
-                         onClick={onChatSubmit}
                        >
-                          {isToolExecuting ? <Loader2 size={18} className="animate-spin" /> : 'Send'}
+                          {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Send'}
                        </button>
                     </div>
                  </div>
-              </div>
+               </form>
            </div>
          )}
 

@@ -1,10 +1,41 @@
-import { openai } from '@ai-sdk/openai';
 import { streamText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { google } from 'googleapis';
 
 export async function POST(req: Request) {
   const { messages, providerToken, email } = await req.json();
+
+  console.log("Chat Request Received:", { 
+    messageCount: messages?.length, 
+    hasProviderToken: !!providerToken,
+    email,
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY 
+  });
+
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("CRITICAL: OPENAI_API_KEY is missing from environment variables.");
+  }
+
+  // Sanitization: Ensure roles alternate and first message is user
+  const sanitizedMessages = (messages || [])
+    .filter((m: any, i: number) => {
+      if (i === 0 && m.role === 'assistant') return false;
+      return true;
+    })
+    .map((m: any) => {
+      // Handle both standard content and parts-based content
+      let content = m.content;
+      if (!content && m.parts) {
+        content = m.parts.map((p: any) => p.text || '').join('').trim();
+      }
+      
+      return {
+        role: m.role,
+        content: content || '...', 
+        ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {})
+      };
+    });
 
   // Initialize Google OAuth client if token is provided
   const oauth2Client = new google.auth.OAuth2();
@@ -17,16 +48,17 @@ export async function POST(req: Request) {
     system: `You are an Executive Assistant AI Agent. You manage emails, schedule meetings, and help organize the user's day.
     The user's email address is: ${email || 'Unknown'}.
     You have access to tools to read emails, send emails, and check calendar availability.
-    Always be professional, concise, and helpful.`,
-    messages,
+    Always be professional, concise, and helpful. 
+    Current date/time: ${new Date().toISOString()}`,
+    messages: sanitizedMessages,
+    maxSteps: 5,
     tools: {
       readEmails: tool({
         description: 'Read the latest unread emails from the user\'s Gmail inbox. Always use this to check for new messages.',
         parameters: z.object({
-          maxResults: z.number().optional().default(5),
+          maxResults: z.number().optional().describe('Maximum number of emails to return')
         }),
-        // @ts-ignore
-        execute: async ({ maxResults }): Promise<any> => {
+        execute: async ({ maxResults = 5 }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Gmail. Ask the user to connect their account.' };
           
           try {
@@ -34,7 +66,7 @@ export async function POST(req: Request) {
              const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread', maxResults });
              
              if (!res.data.messages || res.data.messages.length === 0) {
-               return { messages: [] };
+               return { emails: [] };
              }
 
              const emails = [];
@@ -56,11 +88,10 @@ export async function POST(req: Request) {
       sendEmail: tool({
         description: 'Send an email to a recipient.',
         parameters: z.object({
-          to: z.string().email(),
-          subject: z.string(),
-          body: z.string(),
+          to: z.string().email().describe('Recipient email address'),
+          subject: z.string().describe('Email subject'),
+          body: z.string().describe('Email body (HTML supported)')
         }),
-        // @ts-ignore
         execute: async ({ to, subject, body }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Gmail.' };
           
@@ -96,11 +127,10 @@ export async function POST(req: Request) {
       checkCalendar: tool({
         description: 'Check upcoming calendar events for the user.',
         parameters: z.object({
-          timeMin: z.string().describe('ISO string format for the start time, e.g. 2026-05-10T00:00:00Z').optional(),
-          maxResults: z.number().optional().default(5),
+          timeMin: z.string().optional().describe('ISO string format for the start time'),
+          maxResults: z.number().optional().describe('Maximum number of events to return')
         }),
-        // @ts-ignore
-        execute: async ({ timeMin, maxResults }): Promise<any> => {
+        execute: async ({ timeMin, maxResults = 5 }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Google Calendar.' };
           
           try {
@@ -130,13 +160,12 @@ export async function POST(req: Request) {
       createMeeting: tool({
         description: 'Create a new meeting/event in Google Calendar.',
         parameters: z.object({
-          summary: z.string(),
-          description: z.string().optional(),
+          summary: z.string().describe('Title of the meeting'),
+          description: z.string().optional().describe('Optional description'),
           startTime: z.string().describe('ISO string format for start time'),
           endTime: z.string().describe('ISO string format for end time'),
-          attendeeEmails: z.array(z.string().email()).optional(),
+          attendeeEmails: z.array(z.string().email()).optional().describe('List of attendee emails')
         }),
-        // @ts-ignore
         execute: async ({ summary, description, startTime, endTime, attendeeEmails }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Google Calendar.' };
           
@@ -145,7 +174,7 @@ export async function POST(req: Request) {
              const event = {
                summary,
                description,
-               start: { dateTime: startTime, timeZone: 'UTC' }, // Adjust timezone as needed
+               start: { dateTime: startTime, timeZone: 'UTC' }, 
                end: { dateTime: endTime, timeZone: 'UTC' },
                attendees: attendeeEmails?.map((email: string) => ({ email })),
              };
@@ -166,5 +195,6 @@ export async function POST(req: Request) {
     }
   });
 
-  return result.toTextStreamResponse();
+  return result.toDataStreamResponse();
 }
+

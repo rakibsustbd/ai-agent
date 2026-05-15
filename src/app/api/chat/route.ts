@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: googleAI('gemini-2.0-flash'),
+    model: googleAI('gemini-1.5-flash'),
     system: `You are an Executive Assistant AI Agent. You manage emails, schedule meetings, and help organize the user's day.
     The user's email address is: ${email || 'Unknown'}.
     You have access to tools to read emails, send emails, and check calendar availability.

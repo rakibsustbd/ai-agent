@@ -1,4 +1,4 @@
-import { streamText, tool } from 'ai';
+import { streamText, tool, stepCountIs, zodSchema, convertToModelMessages } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { google } from 'googleapis';
@@ -17,25 +17,12 @@ export async function POST(req: Request) {
     console.error("CRITICAL: OPENAI_API_KEY is missing from environment variables.");
   }
 
-  // Sanitization: Ensure roles alternate and first message is user
-  const sanitizedMessages = (messages || [])
-    .filter((m: any, i: number) => {
-      if (i === 0 && m.role === 'assistant') return false;
-      return true;
-    })
-    .map((m: any) => {
-      // Handle both standard content and parts-based content
-      let content = m.content;
-      if (!content && m.parts) {
-        content = m.parts.map((p: any) => p.text || '').join('').trim();
-      }
-      
-      return {
-        role: m.role,
-        content: content || '...', 
-        ...(m.toolInvocations ? { toolInvocations: m.toolInvocations } : {})
-      };
-    });
+  // SDK v6: messages arrive as UIMessage[] with parts arrays.
+  // Strip the initial assistant greeting (no tool history in it) to keep the
+  // first user message first, which is required by most model APIs.
+  const filteredMessages = (messages || []).filter(
+    (m: any, i: number) => !(i === 0 && m.role === 'assistant')
+  );
 
   // Initialize Google OAuth client if token is provided
   const oauth2Client = new google.auth.OAuth2();
@@ -50,14 +37,14 @@ export async function POST(req: Request) {
     You have access to tools to read emails, send emails, and check calendar availability.
     Always be professional, concise, and helpful. 
     Current date/time: ${new Date().toISOString()}`,
-    messages: sanitizedMessages,
-    maxSteps: 5,
+    messages: await convertToModelMessages(filteredMessages),
+    stopWhen: stepCountIs(5),
     tools: {
       readEmails: tool({
         description: 'Read the latest unread emails from the user\'s Gmail inbox. Always use this to check for new messages.',
-        parameters: z.object({
+        inputSchema: zodSchema(z.object({
           maxResults: z.number().optional().describe('Maximum number of emails to return')
-        }),
+        })),
         execute: async ({ maxResults = 5 }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Gmail. Ask the user to connect their account.' };
           
@@ -87,11 +74,11 @@ export async function POST(req: Request) {
       }),
       sendEmail: tool({
         description: 'Send an email to a recipient.',
-        parameters: z.object({
+        inputSchema: zodSchema(z.object({
           to: z.string().email().describe('Recipient email address'),
           subject: z.string().describe('Email subject'),
           body: z.string().describe('Email body (HTML supported)')
-        }),
+        })),
         execute: async ({ to, subject, body }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Gmail.' };
           
@@ -126,10 +113,10 @@ export async function POST(req: Request) {
       }),
       checkCalendar: tool({
         description: 'Check upcoming calendar events for the user.',
-        parameters: z.object({
+        inputSchema: zodSchema(z.object({
           timeMin: z.string().optional().describe('ISO string format for the start time'),
           maxResults: z.number().optional().describe('Maximum number of events to return')
-        }),
+        })),
         execute: async ({ timeMin, maxResults = 5 }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Google Calendar.' };
           
@@ -159,13 +146,13 @@ export async function POST(req: Request) {
       }),
       createMeeting: tool({
         description: 'Create a new meeting/event in Google Calendar.',
-        parameters: z.object({
+        inputSchema: zodSchema(z.object({
           summary: z.string().describe('Title of the meeting'),
           description: z.string().optional().describe('Optional description'),
           startTime: z.string().describe('ISO string format for start time'),
           endTime: z.string().describe('ISO string format for end time'),
           attendeeEmails: z.array(z.string().email()).optional().describe('List of attendee emails')
-        }),
+        })),
         execute: async ({ summary, description, startTime, endTime, attendeeEmails }): Promise<any> => {
           if (!providerToken) return { error: 'Not connected to Google Calendar.' };
           
@@ -195,6 +182,6 @@ export async function POST(req: Request) {
     }
   });
 
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }
 

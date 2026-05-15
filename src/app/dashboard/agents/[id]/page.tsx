@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
@@ -13,6 +13,7 @@ import {
   Plus, Filter, MoreHorizontal, ArrowRight, MousePointer2, GitBranch, Terminal, MapPin, Bell,
   Paperclip as AttachmentIcon, X, Target, Info, Copy, ExternalLink, Search, Eye, Cloud
 } from 'lucide-react';
+import { DefaultChatTransport } from 'ai';
 
 const configTabs = ['Settings', 'Memory', 'Tools', 'Interface'];
 
@@ -231,35 +232,67 @@ export default function AgentDetailPage() {
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
   // Initialize Vercel AI SDK Chat
-  const { messages, input, setInput, handleInputChange, handleSubmit, append, setMessages, isLoading, error } = useChat({
-    api: '/api/chat',
-    body: {
-      providerToken,
-      email: connectEmail,
-    },
-    initialMessages: [
+  const [input, setInput] = useState('');
+
+  // Use refs so the transport always reads the latest token/email without re-creating itself
+  const providerTokenRef = useRef<string | null>(null);
+  const connectEmailRef = useRef<string>('ahmed.rakib@gmail.com');
+  useEffect(() => { providerTokenRef.current = providerToken; }, [providerToken]);
+  useEffect(() => { connectEmailRef.current = connectEmail; }, [connectEmail]);
+
+  const { messages, setMessages, status, sendMessage, error } = useChat({
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      prepareSendMessagesRequest: ({ body, ...rest }: any) => ({
+        body: {
+          ...(body || {}),
+          providerToken: providerTokenRef.current,
+          email: connectEmailRef.current,
+        },
+      }),
+    }),
+    messages: [
       { 
         id: '1',
         role: 'assistant', 
-        content: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?`
+        parts: [{ type: 'text', text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
       }
     ]
   });
 
-  const handleSend = async (e?: any) => {
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+  };
+
+  const handleSubmit = async (e?: any) => {
     e?.preventDefault?.();
     if (!input.trim() || isLoading) return;
     
-    const currentInput = input;
-    setInput(''); // Optimistically clear input
-    
-    try {
-      await append({ role: 'user', content: currentInput });
-    } catch (err) {
-      console.error("Send error:", err);
-      setInput(currentInput); // Restore on error
-    }
+    const userMessage = input;
+    setInput('');
+    await sendMessage({ text: userMessage });
   };
+
+  // SDK v6: extract text from parts array
+  const getMessageText = (m: any): string => {
+    if (!m.parts) return m.content || '';
+    return m.parts
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text)
+      .join('');
+  };
+
+  // SDK v6: extract tool parts from parts array
+  const getToolParts = (m: any): any[] => {
+    if (!m.parts) return [];
+    return m.parts.filter((p: any) =>
+      p.type === 'dynamic-tool' ||
+      (typeof p.type === 'string' && p.type.startsWith('tool-'))
+    );
+  };
+
 
   const [tasks, setTasks] = useState([
     { id: 'T-1024', title: 'Q3 Financial Audit Preparation', priority: 'High', status: 'In Progress', deadline: 'May 12', type: 'Autonomous' },
@@ -543,105 +576,124 @@ export default function AgentDetailPage() {
                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>• Connected to {currentConfig.grounding.join(', ')}</span>
               </div>
               <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                 {messages?.map((msg: any) => (
-                    <div key={msg.id} style={{ alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ padding: '14px 18px', background: msg.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: msg.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: msg.role === 'user' ? '4px' : '16px', border: msg.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
-                          {msg.content && <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
-                          
-                          {msg.toolInvocations?.map((toolInvocation: any) => {
-                            const { toolName, toolCallId, state } = toolInvocation;
-                            const isResult = state === 'result';
-                            const result = isResult ? toolInvocation.result : null;
+                 {messages?.map((m: any) => {
+                      const textContent = getMessageText(m);
+                      const toolParts = getToolParts(m);
+                      return (
+                     <div key={m.id} style={{ alignSelf: m.role === 'assistant' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                       <div style={{ padding: '14px 18px', background: m.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: m.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: m.role === 'user' ? '4px' : '16px', border: m.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
+                           {textContent && <div style={{ whiteSpace: 'pre-wrap' }}>{textContent}</div>}
 
-                            if (state === 'call') {
-                              return (
-                                <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                  <div className="flex-items-center" style={{ gap: '8px' }}>
-                                    <Loader2 size={14} className="animate-spin" color="#3b82f6" />
-                                    <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Executing {toolName}...</span>
-                                  </div>
-                                </div>
-                              );
-                            }
+                           {toolParts.map((part: any) => {
+                             // SDK v6: toolName lives on the part directly
+                             const toolName: string = part.toolName || (typeof part.type === 'string' ? part.type.replace('tool-', '') : '');
+                             const toolCallId: string = part.toolCallId || part.id || toolName;
+                             const state: string = part.state || '';
+                             // States: 'input-streaming' | 'input-available' | 'output-available' | 'output-error'
+                             const isPending = state === 'input-streaming' || state === 'input-available';
+                             const isResult = state === 'output-available';
+                             const isError = state === 'output-error';
+                             const output = isResult ? part.output : null;
 
-                            if (toolName === 'readEmails') {
-                              return (
-                                <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                   <div className="flex-between" style={{ marginBottom: '12px' }}>
-                                      <div className="flex-items-center" style={{ gap: '8px' }}>
-                                         <Globe size={14} color="#3b82f6" />
-                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>GMAIL: RECENT INBOX</span>
-                                      </div>
+                             if (isPending) {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                   <div className="flex-items-center" style={{ gap: '8px' }}>
+                                     <Loader2 size={14} className="animate-spin" color="#3b82f6" />
+                                     <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Executing {toolName}...</span>
                                    </div>
-                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                      {result?.emails ? result.emails.slice(0, 3).map((m: any) => (
-                                        <div key={m.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
-                                           <p style={{ fontWeight: '700', marginBottom: '2px' }}>{m.subject}</p>
-                                           <p style={{ opacity: 0.5, fontSize: '10px' }}>From: {m.from}</p>
-                                        </div>
-                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{result?.error || 'No unread emails found.'}</p>}
+                                 </div>
+                               );
+                             }
+
+                             if (isError) {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(239,68,68,0.07)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                   <div className="flex-items-center" style={{ gap: '8px' }}>
+                                     <X size={14} color="#ef4444" />
+                                     <span style={{ fontSize: '11px', color: '#ef4444' }}>Tool error: {part.errorText || 'Unknown error'}</span>
                                    </div>
-                                </div>
-                              );
-                            }
+                                 </div>
+                               );
+                             }
 
-                            if (toolName === 'checkCalendar') {
-                              return (
-                                <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                   <div className="flex-between" style={{ marginBottom: '12px' }}>
-                                      <div className="flex-items-center" style={{ gap: '8px' }}>
-                                         <Calendar size={14} color="#10b981" />
-                                         <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: UPCOMING</span>
-                                      </div>
+                             if (toolName === 'readEmails') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                       <div className="flex-items-center" style={{ gap: '8px' }}>
+                                          <Globe size={14} color="#3b82f6" />
+                                          <span style={{ fontSize: '11px', fontWeight: '800' }}>GMAIL: RECENT INBOX</span>
+                                       </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                       {output?.emails ? output.emails.slice(0, 3).map((email: any) => (
+                                         <div key={email.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
+                                            <p style={{ fontWeight: '700', marginBottom: '2px' }}>{email.subject}</p>
+                                            <p style={{ opacity: 0.5, fontSize: '10px' }}>From: {email.from}</p>
+                                         </div>
+                                       )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{output?.error || 'No unread emails found.'}</p>}
+                                    </div>
+                                 </div>
+                               );
+                             }
+
+                             if (toolName === 'checkCalendar') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                       <div className="flex-items-center" style={{ gap: '8px' }}>
+                                          <Calendar size={14} color="#10b981" />
+                                          <span style={{ fontSize: '11px', fontWeight: '800' }}>CALENDAR: UPCOMING</span>
+                                       </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                       {output?.events ? output.events.slice(0, 3).map((ev: any) => (
+                                         <div key={ev.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
+                                            <p style={{ fontWeight: '700', marginBottom: '2px' }}>{ev.summary}</p>
+                                            <p style={{ opacity: 0.5, fontSize: '10px' }}>{new Date(ev.start).toLocaleString()}</p>
+                                         </div>
+                                       )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{output?.error || 'No upcoming events.'}</p>}
+                                    </div>
+                                 </div>
+                               );
+                             }
+
+                             if (toolName === 'createMeeting' || toolName === 'sendEmail') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                   <div className="flex-items-center" style={{ gap: '8px' }}>
+                                     <CheckCircle2 size={14} color="#10b981" />
+                                     <span style={{ fontSize: '11px', color: '#10b981' }}>{output?.success ? 'Action Completed Successfully' : output?.error || 'Executing action...'}</span>
                                    </div>
-                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                      {result?.events ? result.events.slice(0, 3).map((ev: any) => (
-                                        <div key={ev.id} style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '12px' }}>
-                                           <p style={{ fontWeight: '700', marginBottom: '2px' }}>{ev.summary}</p>
-                                           <p style={{ opacity: 0.5, fontSize: '10px' }}>{new Date(ev.start).toLocaleString()}</p>
-                                        </div>
-                                      )) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{result?.error || 'No upcoming events.'}</p>}
-                                   </div>
-                                </div>
-                              );
-                            }
+                                 </div>
+                               );
+                             }
 
-                            if (toolName === 'createMeeting' || toolName === 'sendEmail') {
-                              return (
-                                <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                  <div className="flex-items-center" style={{ gap: '8px' }}>
-                                    <CheckCircle2 size={14} color="#10b981" />
-                                    <span style={{ fontSize: '11px', color: '#10b981' }}>{result?.success ? 'Action Completed Successfully' : result?.error || 'Action failed'}</span>
-                                  </div>
-                                </div>
-                              );
-                            }
+                             return null;
+                           })}
+                       </div>
 
-                            return null;
-                          })}
-                      </div>
-
-                      {isLoading && (
-                        <div style={{ alignSelf: 'flex-start', display: 'flex', gap: '8px', alignItems: 'center', opacity: 0.5 }}>
-                           <Loader2 size={14} className="animate-spin" />
-                           <span style={{ fontSize: '12px' }}>Thinking...</span>
-                        </div>
-                      )}
-
-                      {error && (
-                        <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '12px', marginTop: '12px' }}>
-                           <strong>Error:</strong> {error.message || 'The agent failed to respond. Please check your API key and connection.'}
-                        </div>
-                      )}
-
-                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', alignSelf: msg.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
-                         {msg.role === 'assistant' ? agentName : 'You'}
-                      </span>
-                   </div>
-                 ))}
-              </div>
-               <form 
-                 onSubmit={handleSend}
+                       <span style={{ fontSize: '10px', color: 'var(--text-dim)', alignSelf: m.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
+                          {m.role === 'assistant' ? agentName : 'You'}
+                       </span>
+                    </div>
+                     );
+                   })}
+                   {isLoading && (
+                     <div style={{ alignSelf: 'flex-start', display: 'flex', gap: '8px', alignItems: 'center', opacity: 0.5 }}>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span style={{ fontSize: '12px' }}>Thinking...</span>
+                     </div>
+                   )}
+                   {error && (
+                     <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#ef4444', fontSize: '12px' }}>
+                        <strong>Error:</strong> {error.message || 'The agent failed to respond. Please check your API key and connection.'}
+                     </div>
+                   )}
+               </div>
+                <form 
+                 onSubmit={handleSubmit}
                  style={{ padding: '24px', borderTop: '1px solid var(--border-main)', background: 'rgba(2, 4, 10, 0.4)', position: 'relative' }}
                >
                  {showAttachMenu && (
@@ -666,7 +718,7 @@ export default function AgentDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          handleSend(e);
+                          handleSubmit(e);
                         }
                       }}
                       value={input}

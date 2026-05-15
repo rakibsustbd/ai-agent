@@ -178,6 +178,9 @@ export async function POST(req: Request) {
              return { success: true, eventLink: res.data.htmlLink, eventId: res.data.id };
           } catch (error: any) {
              console.error("Calendar Insert Error:", error);
+             if (error.message && (error.message.includes('invalid authentication') || error.message.includes('OAuth'))) {
+                return { error: 'Your Google integration token has expired. Please sign out and sign back in to refresh your access.' };
+             }
              return { error: 'Failed to create meeting: ' + error.message };
           }
         },

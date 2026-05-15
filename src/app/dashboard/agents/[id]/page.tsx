@@ -234,16 +234,27 @@ export default function AgentDetailPage() {
   // Initialize Vercel AI SDK Chat
   const [input, setInput] = useState('');
 
+  const defaultMessage = { 
+    id: '1',
+    role: 'assistant', 
+    parts: [{ type: 'text', text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
+  };
+
+  const initialMsgs = typeof window !== 'undefined' && localStorage.getItem(`chat_${agentId}_v2`) 
+    ? JSON.parse(localStorage.getItem(`chat_${agentId}_v2`)!) 
+    : [defaultMessage];
+
   const { messages, setMessages, status, sendMessage, error } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
-    messages: [
-      { 
-        id: '1',
-        role: 'assistant', 
-        parts: [{ type: 'text', text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
-      }
-    ]
+    initialMessages: initialMsgs
   });
+
+  // Save messages on change
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      localStorage.setItem(`chat_${agentId}_v2`, JSON.stringify(messages));
+    }
+  }, [messages, agentId]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 

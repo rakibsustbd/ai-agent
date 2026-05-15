@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
@@ -241,8 +241,7 @@ export default function AgentDetailPage() {
   };
 
   const { messages, setMessages, status, sendMessage, error } = useChat({
-    transport: new DefaultChatTransport({ api: '/api/chat' }),
-    initialMessages: [defaultMessage]
+    transport: new DefaultChatTransport({ api: '/api/chat' })
   });
 
   // SDK v6: extract tool parts from parts array
@@ -256,6 +255,18 @@ export default function AgentDetailPage() {
   }, []);
 
   const processedToolCalls = useRef<Set<string>>(new Set());
+
+  // On mount: restore the set of already-processed tool call IDs from localStorage
+  // so we don't create duplicate tasks when messages are restored from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(`processedCalls_${agentId}_v2`);
+    if (saved) {
+      try {
+        const ids: string[] = JSON.parse(saved);
+        ids.forEach(id => processedToolCalls.current.add(id));
+      } catch {}
+    }
+  }, [agentId]);
 
   // Restore messages from localStorage on mount
   useEffect(() => {
@@ -376,7 +387,11 @@ export default function AgentDetailPage() {
 
     if (newTasksToAdding.length > 0) {
       setTasks(prev => {
-        const updated = [...newTasksToAdding, ...prev];
+        // Prevent duplicates: only add tasks whose id doesn't already exist
+        const existingIds = new Set(prev.map((t: any) => t.id));
+        const truly_new = newTasksToAdding.filter(t => !existingIds.has(t.id));
+        if (truly_new.length === 0) return prev;
+        const updated = [...truly_new, ...prev];
         localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(updated));
         return updated;
       });
@@ -384,18 +399,27 @@ export default function AgentDetailPage() {
         const newNotifs = newTasksToAdding.map(t => ({ 
           type: t.status === 'Completed' ? 'Report' : 'Action', 
           title: t.status === 'Completed' ? `Task Completed: ${t.title}` : `New Mission Launched: ${t.title}`, 
-          time: 'Just now', 
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), 
           status: 'Unread' 
         }));
         const updated = [...newNotifs, ...prev];
         localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(updated));
         return updated;
       });
+      // Persist processed call IDs to localStorage
+      const allIds = Array.from(processedToolCalls.current);
+      localStorage.setItem(`processedCalls_${agentId}_v2`, JSON.stringify(allIds));
     }
   }, [messages, agentId]);
 
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(localStorage.getItem(`tasks_${agentId}_v2`) || '[]'); } catch { return []; }
+  });
+  const [notifications, setNotifications] = useState<any[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(localStorage.getItem(`notifs_${agentId}_v2`) || '[]'); } catch { return []; }
+  });
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
 
@@ -433,30 +457,6 @@ export default function AgentDetailPage() {
       }
     });
 
-    // Load Tasks from LocalStorage to ensure "actual and real time" updates in UI
-    const fetchTasks = async () => {
-      const storedTasks = localStorage.getItem(`tasks_${agentId}_v2`);
-      if (storedTasks) {
-        setTasks(JSON.parse(storedTasks));
-      } else {
-        const initialTasks: any[] = [];
-        setTasks(initialTasks);
-        localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(initialTasks));
-      }
-    };
-
-    // Load Notifications
-    const fetchNotifications = async () => {
-      const storedNotifs = localStorage.getItem(`notifs_${agentId}_v2`);
-      if (storedNotifs) {
-        setNotifications(JSON.parse(storedNotifs));
-      } else {
-        const initialNotifs: any[] = [];
-        setNotifications(initialNotifs);
-        localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(initialNotifs));
-      }
-    };
-
     // Fetch Integrations from Supabase
     const fetchIntegrations = async () => {
       const { data, error } = await supabase
@@ -483,8 +483,6 @@ export default function AgentDetailPage() {
       }
     };
 
-    fetchTasks();
-    fetchNotifications();
     fetchIntegrations();
     fetchKnowledge();
   }, [agentId]);
@@ -868,7 +866,12 @@ export default function AgentDetailPage() {
                          <span style={{ fontSize: '11px', opacity: 0.4, fontWeight: '700' }}>{tasks.filter(t => t.status === status).length}</span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                         {tasks.filter(t => t.status === status).map(task => (
+                         {tasks.filter(t => t.status === status).length === 0 ? (
+                           <div style={{ padding: '24px 16px', textAlign: 'center', border: '1px dashed rgba(255,255,255,0.05)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)' }}>
+                              <ListTodo size={20} style={{ opacity: 0.2, margin: '0 auto 12px auto' }} />
+                              <p style={{ fontSize: '12px', opacity: 0.4 }}>No {status.toLowerCase()} tasks</p>
+                           </div>
+                         ) : tasks.filter(t => t.status === status).map(task => (
                            <div key={task.id} className="stat-card" style={{ padding: '20px', border: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}>
                               <div className="flex-between" style={{ marginBottom: '12px' }}>
                                  <span style={{ fontSize: '10px', fontWeight: '800', opacity: 0.4 }}>{task.id}</span>
@@ -1199,7 +1202,12 @@ export default function AgentDetailPage() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                     {notifications.map((log, i) => (
+                     {notifications.length === 0 ? (
+                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' }}>
+                         <Bell size={32} style={{ opacity: 0.2, marginBottom: '16px' }} />
+                         <p style={{ opacity: 0.4, fontSize: '14px' }}>No notifications yet. Agent activity will appear here when tasks are executed.</p>
+                       </div>
+                     ) : notifications.map((log, i) => (
                         <div key={i} style={{ padding: '20px 24px', borderBottom: i === notifications.length - 1 ? 'none' : '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: log.status === 'Unread' ? '#3b82f6' : 'transparent', border: log.status === 'Unread' ? 'none' : '1px solid var(--border-main)' }} />

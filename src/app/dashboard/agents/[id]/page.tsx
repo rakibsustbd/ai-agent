@@ -302,18 +302,42 @@ export default function AgentDetailPage() {
         const toolName = part.toolName || part.name;
         const toolCallId = part.toolCallId || part.id;
         
-        // We intercept `createAgentTask` or general tasks inferred from the assistant's actions
-        if (toolName === 'createAgentTask' && toolCallId && !processedToolCalls.current.has(toolCallId)) {
-          processedToolCalls.current.add(toolCallId);
+        // Ensure we only process tool calls once
+        if (toolCallId && !processedToolCalls.current.has(toolCallId)) {
+          let isTask = false;
+          let title = '';
+          let status = 'Pending';
+          let priority = 'Medium';
           const args = part.args || {};
-          newTasksToAdding.push({
-            id: `T-${Math.floor(Math.random() * 9000) + 1000}`,
-            title: args.title || 'New Agent Task',
-            priority: args.priority || 'Medium',
-            status: 'Pending',
-            deadline: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            type: 'Autonomous'
-          });
+
+          if (toolName === 'createAgentTask') {
+            title = args.title || 'New Agent Task';
+            priority = args.priority || 'Medium';
+            status = 'Pending';
+            isTask = true;
+          } else if (toolName === 'sendEmail') {
+            title = `Introductory Email sent to ${args.to || 'Contact'}`;
+            priority = 'High';
+            status = 'Completed';
+            isTask = true;
+          } else if (toolName === 'createMeeting') {
+            title = `Meeting Scheduled: ${args.summary || 'Event'}`;
+            priority = 'High';
+            status = 'Completed';
+            isTask = true;
+          }
+
+          if (isTask) {
+            processedToolCalls.current.add(toolCallId);
+            newTasksToAdding.push({
+              id: `T-${Math.floor(Math.random() * 9000) + 1000}`,
+              title: title,
+              priority: priority,
+              status: status,
+              deadline: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              type: 'Autonomous'
+            });
+          }
         }
       });
     });
@@ -326,8 +350,8 @@ export default function AgentDetailPage() {
       });
       setNotifications(prev => {
         const newNotifs = newTasksToAdding.map(t => ({ 
-          type: 'Action', 
-          title: `New Mission Launched: ${t.title}`, 
+          type: t.status === 'Completed' ? 'Report' : 'Action', 
+          title: t.status === 'Completed' ? `Task Completed: ${t.title}` : `New Mission Launched: ${t.title}`, 
           time: 'Just now', 
           status: 'Unread' 
         }));

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
@@ -263,6 +263,8 @@ export default function AgentDetailPage() {
       body: {
         providerToken,
         email: connectEmail,
+        agentName,
+        agentId,
       }
     });
   };
@@ -281,18 +283,63 @@ export default function AgentDetailPage() {
     if (!m.parts) return [];
     return m.parts.filter((p: any) =>
       p.type === 'dynamic-tool' ||
+      p.type === 'tool-call' ||
       (typeof p.type === 'string' && p.type.startsWith('tool-'))
     );
   };
 
+  const processedToolCalls = useRef<Set<string>>(new Set());
 
-  const [tasks, setTasks] = useState([
-    { id: 'T-1024', title: 'Q3 Financial Audit Preparation', priority: 'High', status: 'In Progress', deadline: 'May 12', type: 'Autonomous' },
-    { id: 'T-1025', title: 'Weekly Expense Reconciliation', priority: 'Medium', status: 'Pending', deadline: 'May 08', type: 'Human-Verified' },
-    { id: 'T-1026', title: 'Vendor Payment Verification', priority: 'High', status: 'Completed', deadline: 'May 04', type: 'Autonomous' },
-    { id: 'T-1027', title: 'Tax Compliance Review', priority: 'Critical', status: 'Pending', deadline: 'May 15', type: 'Autonomous' },
-  ]);
+  // Listen for AI tool calls to create tasks automatically
+  useEffect(() => {
+    if (!messages) return;
+    
+    const newTasksToAdding: any[] = [];
 
+    messages.forEach(m => {
+      const toolParts = getToolParts(m);
+      toolParts.forEach(part => {
+        const toolName = part.toolName || part.name;
+        const toolCallId = part.toolCallId || part.id;
+        
+        // We intercept `createAgentTask` or general tasks inferred from the assistant's actions
+        if (toolName === 'createAgentTask' && toolCallId && !processedToolCalls.current.has(toolCallId)) {
+          processedToolCalls.current.add(toolCallId);
+          const args = part.args || {};
+          newTasksToAdding.push({
+            id: `T-${Math.floor(Math.random() * 9000) + 1000}`,
+            title: args.title || 'New Agent Task',
+            priority: args.priority || 'Medium',
+            status: 'Pending',
+            deadline: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            type: 'Autonomous'
+          });
+        }
+      });
+    });
+
+    if (newTasksToAdding.length > 0) {
+      setTasks(prev => {
+        const updated = [...newTasksToAdding, ...prev];
+        localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(updated));
+        return updated;
+      });
+      setNotifications(prev => {
+        const newNotifs = newTasksToAdding.map(t => ({ 
+          type: 'Action', 
+          title: `New Mission Launched: ${t.title}`, 
+          time: 'Just now', 
+          status: 'Unread' 
+        }));
+        const updated = [...newNotifs, ...prev];
+        localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [messages, agentId]);
+
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
 
@@ -330,22 +377,27 @@ export default function AgentDetailPage() {
       }
     });
 
-    // Fetch Tasks from Supabase
+    // Load Tasks from LocalStorage to ensure "actual and real time" updates in UI
     const fetchTasks = async () => {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('agent_id', agentId);
-      
-      if (data && data.length > 0) {
-        setTasks(data.map(t => ({
-          id: t.id.substring(0, 8),
-          title: t.title,
-          priority: t.priority,
-          status: t.status,
-          deadline: t.deadline || 'No Deadline',
-          type: t.type || 'Autonomous'
-        })));
+      const storedTasks = localStorage.getItem(`tasks_${agentId}_v2`);
+      if (storedTasks) {
+        setTasks(JSON.parse(storedTasks));
+      } else {
+        const initialTasks: any[] = [];
+        setTasks(initialTasks);
+        localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(initialTasks));
+      }
+    };
+
+    // Load Notifications
+    const fetchNotifications = async () => {
+      const storedNotifs = localStorage.getItem(`notifs_${agentId}_v2`);
+      if (storedNotifs) {
+        setNotifications(JSON.parse(storedNotifs));
+      } else {
+        const initialNotifs: any[] = [];
+        setNotifications(initialNotifs);
+        localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(initialNotifs));
       }
     };
 
@@ -376,46 +428,49 @@ export default function AgentDetailPage() {
     };
 
     fetchTasks();
+    fetchNotifications();
     fetchIntegrations();
     fetchKnowledge();
   }, [agentId]);
 
   const updateTaskStatus = async (taskId: string, newStatus: string) => {
-    // Optimistic update
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-    
-    // In a real app, we would use the full UUID from Supabase. 
-    // Since we only display short IDs, we'd need to keep the full UUID in state.
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t);
+      localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(updated));
+      return updated;
+    });
+
+    // Add notification
+    setNotifications(prev => {
+      const updated = [{ type: 'Update', title: `Task ${taskId} status changed to ${newStatus}`, time: 'Just now', status: 'Unread' }, ...prev];
+      localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const handleCreateTask = async () => {
     if (!newTaskTitle) return;
 
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert([
-        {
-          title: newTaskTitle,
-          priority: newTaskPriority,
-          status: 'Pending',
-          agent_id: agentId,
-          type: newTaskType,
-          deadline: 'May 12'
-        }
-      ])
-      .select();
+    const newTask = {
+      id: `T-${Math.floor(Math.random() * 10000)}`,
+      title: newTaskTitle,
+      priority: newTaskPriority,
+      status: 'Pending',
+      type: newTaskType,
+      deadline: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    };
 
-    if (data && data.length > 0) {
-      const t = data[0];
-      setTasks(prev => [{
-        id: t.id.substring(0, 8),
-        title: t.title,
-        priority: t.priority,
-        status: t.status,
-        deadline: t.deadline || 'No Deadline',
-        type: t.type || 'Autonomous'
-      }, ...prev]);
-    }
+    setTasks(prev => {
+      const updated = [newTask, ...prev];
+      localStorage.setItem(`tasks_${agentId}_v2`, JSON.stringify(updated));
+      return updated;
+    });
+
+    setNotifications(prev => {
+      const updated = [{ type: 'Action', title: `New Mission Launched: ${newTaskTitle}`, time: 'Just now', status: 'Unread' }, ...prev];
+      localStorage.setItem(`notifs_${agentId}_v2`, JSON.stringify(updated));
+      return updated;
+    });
     
     setIsCreateTaskModalOpen(false);
     setNewTaskTitle('');
@@ -1088,13 +1143,8 @@ export default function AgentDetailPage() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                     {[
-                        { type: 'Report', title: 'Daily Synthesis Complete', time: '2h ago', status: 'Read' },
-                        { type: 'Action', title: 'Data Grounding Required', time: '5h ago', status: 'Unread' },
-                        { type: 'Update', title: 'Logic Pattern Optimized', time: '1d ago', status: 'Read' },
-                        { type: 'Alert', title: 'API Connection Latency', time: '2d ago', status: 'Read' },
-                     ].map((log, i) => (
-                        <div key={i} style={{ padding: '20px 24px', borderBottom: i === 3 ? 'none' : '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                     {notifications.map((log, i) => (
+                        <div key={i} style={{ padding: '20px 24px', borderBottom: i === notifications.length - 1 ? 'none' : '1px solid var(--border-main)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: log.status === 'Unread' ? '#3b82f6' : 'transparent', border: log.status === 'Unread' ? 'none' : '1px solid var(--border-main)' }} />
                               <div>
@@ -1268,11 +1318,11 @@ export default function AgentDetailPage() {
               </div>
 
               {/* Metric Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
+               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
                  {[
                    { label: 'Logic Accuracy', value: '98.4%', trend: '+2.1%', icon: BrainCircuit, color: '#3b82f6' },
-                   { label: 'Tasks Automated', value: '1,284', trend: '+18%', icon: Zap, color: '#10b981' },
-                   { label: 'Human Time Saved', value: '342h', trend: '+12h', icon: Clock, color: '#f59e0b' },
+                   { label: 'Tasks Automated', value: tasks.length.toString(), trend: '+1', icon: Zap, color: '#10b981' },
+                   { label: 'Completed Tasks', value: tasks.filter(t => t.status === 'Completed').length.toString(), trend: '+1', icon: Clock, color: '#f59e0b' },
                    { label: 'Resource Efficiency', value: '92%', trend: '+5%', icon: ShieldCheck, color: '#8b5cf6' },
                  ].map((stat, i) => {
                     const Icon = stat.icon;
@@ -1362,21 +1412,16 @@ export default function AgentDetailPage() {
               <div className="stat-card" style={{ padding: '32px' }}>
                  <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Neural Execution Logs</h3>
                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', background: 'var(--border-main)', borderRadius: '8px', overflow: 'hidden' }}>
-                    {[
-                      { time: '10:42:31 AM', mission: 'Audit Q3 Expense Reports', step: 'Flag for Review', status: 'Success', confidence: '99%' },
-                      { time: '10:40:15 AM', mission: 'Sync Weekly Calendar', step: 'Calendar Sync', status: 'Success', confidence: '97%' },
-                      { time: '10:35:02 AM', mission: 'Verify Vendor Payment', step: 'Verify Duplicates', status: 'Warning', confidence: '82%' },
-                      { time: '10:31:44 AM', mission: 'Process Inbound Invoice', step: 'Intent Analysis', status: 'Success', confidence: '99%' },
-                    ].map((log, i) => (
+                    {tasks.slice(0, 4).map((task, i) => (
                       <div key={i} className="flex-between" style={{ background: '#02040a', padding: '16px 24px', fontSize: '13px' }}>
                          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: '11px', opacity: 0.4 }}>{log.time}</span>
-                            <span style={{ fontWeight: '700' }}>{log.mission}</span>
-                            <div style={{ padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', opacity: 0.6 }}>{log.step}</div>
+                            <span style={{ fontFamily: 'monospace', fontSize: '11px', opacity: 0.4 }}>{task.deadline || 'Today'}</span>
+                            <span style={{ fontWeight: '700' }}>{task.title}</span>
+                            <div style={{ padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', opacity: 0.6 }}>{task.status}</div>
                          </div>
                          <div className="flex-items-center" style={{ gap: '24px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: '800', color: log.status === 'Success' ? '#10b981' : '#f59e0b' }}>{log.status}</span>
-                            <span style={{ fontSize: '11px', opacity: 0.4 }}>{log.confidence} Conf.</span>
+                            <span style={{ fontSize: '11px', fontWeight: '800', color: task.status === 'Completed' ? '#10b981' : task.status === 'Pending' ? '#f59e0b' : '#3b82f6' }}>{task.status === 'Completed' ? 'Success' : task.status}</span>
+                            <span style={{ fontSize: '11px', opacity: 0.4 }}>99% Conf.</span>
                          </div>
                       </div>
                     ))}

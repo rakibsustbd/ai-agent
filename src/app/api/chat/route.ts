@@ -4,10 +4,12 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 
 export async function POST(req: Request) {
-  const { messages, providerToken, email } = await req.json();
+  const { messages, providerToken, email, agentName, agentId } = await req.json();
 
   console.log("Chat Request Received:", { 
     messageCount: messages?.length, 
+    agentId,
+    agentName,
     hasProviderToken: !!providerToken,
     email,
     hasGeminiKey: !!process.env.GOOGLE_GENERATIVE_AI_API_KEY 
@@ -31,8 +33,9 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: googleAI('gemini-2.5-flash'),
-    system: `You are an Executive Assistant AI Agent. You manage emails, schedule meetings, and help organize the user's day.
+    model: googleAI('gemini-2.0-flash'),
+    system: `You are the ${agentName || 'Executive Assistant'} AI Agent. Your role is ${agentId || 'Operations'}. 
+    Manage emails, schedule meetings, and help organize the user's day based on your specific expertise.
     The user's email address is: ${email || 'Unknown'}.
     You have access to tools to read emails, send emails, and check calendar availability.
     Always be professional, concise, and helpful. 
@@ -178,6 +181,16 @@ export async function POST(req: Request) {
              return { error: 'Failed to create meeting: ' + error.message };
           }
         },
+      }),
+      createAgentTask: tool({
+        description: 'Record a new mission or task in the dashboard when the user asks you to perform an action. Call this to formally log the task before executing it.',
+        inputSchema: zodSchema(z.object({
+          title: z.string().describe('Title of the mission/task'),
+          priority: z.enum(['Low', 'Medium', 'High', 'Critical']).describe('Priority of the task')
+        })),
+        execute: async ({ title, priority }): Promise<any> => {
+          return { success: true, title, priority };
+        }
       })
     }
   });

@@ -1,5 +1,5 @@
 import { streamText, tool, stepCountIs, zodSchema, convertToModelMessages } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { google as googleAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { google } from 'googleapis';
 
@@ -10,11 +10,11 @@ export async function POST(req: Request) {
     messageCount: messages?.length, 
     hasProviderToken: !!providerToken,
     email,
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY 
+    hasGeminiKey: !!process.env.GOOGLE_GENERATIVE_AI_API_KEY 
   });
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("CRITICAL: OPENAI_API_KEY is missing from environment variables.");
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    console.error("CRITICAL: GOOGLE_GENERATIVE_AI_API_KEY is missing from environment variables.");
   }
 
   // SDK v6: messages arrive as UIMessage[] with parts arrays.
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: openai('gpt-4o'),
+    model: googleAI('gemini-2.0-flash'),
     system: `You are an Executive Assistant AI Agent. You manage emails, schedule meetings, and help organize the user's day.
     The user's email address is: ${email || 'Unknown'}.
     You have access to tools to read emails, send emails, and check calendar availability.

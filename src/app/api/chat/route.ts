@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: googleAI('gemini-2.0-flash'),
+    model: googleAI('gemini-2.5-flash'),
     system: `You are the ${agentName || 'Executive Assistant'} AI Agent. Your role is ${agentId || 'Operations'}. 
     Manage emails, schedule meetings, and help organize the user's day based on your specific expertise.
     The user's email address is: ${email || 'Unknown'}.

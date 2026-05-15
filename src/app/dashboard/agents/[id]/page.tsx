@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
@@ -234,23 +234,8 @@ export default function AgentDetailPage() {
   // Initialize Vercel AI SDK Chat
   const [input, setInput] = useState('');
 
-  // Use refs so the transport always reads the latest token/email without re-creating itself
-  const providerTokenRef = useRef<string | null>(null);
-  const connectEmailRef = useRef<string>('ahmed.rakib@gmail.com');
-  useEffect(() => { providerTokenRef.current = providerToken; }, [providerToken]);
-  useEffect(() => { connectEmailRef.current = connectEmail; }, [connectEmail]);
-
   const { messages, setMessages, status, sendMessage, error } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      prepareSendMessagesRequest: ({ body, ...rest }: any) => ({
-        body: {
-          ...(body || {}),
-          providerToken: providerTokenRef.current,
-          email: connectEmailRef.current,
-        },
-      }),
-    }),
+    transport: new DefaultChatTransport({ api: '/api/chat' }),
     messages: [
       { 
         id: '1',
@@ -272,7 +257,14 @@ export default function AgentDetailPage() {
     
     const userMessage = input;
     setInput('');
-    await sendMessage({ text: userMessage });
+    // Pass providerToken and email dynamically via sendMessage body — this is merged
+    // into the request body alongside the auto-serialized messages array.
+    await sendMessage({ text: userMessage }, {
+      body: {
+        providerToken,
+        email: connectEmail,
+      }
+    });
   };
 
   // SDK v6: extract text from parts array

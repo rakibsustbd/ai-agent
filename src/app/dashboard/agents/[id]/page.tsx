@@ -240,18 +240,47 @@ export default function AgentDetailPage() {
     parts: [{ type: 'text', text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
   };
 
-  const initialMsgs = typeof window !== 'undefined' && localStorage.getItem(`chat_${agentId}_v2`) 
-    ? JSON.parse(localStorage.getItem(`chat_${agentId}_v2`)!) 
-    : [defaultMessage];
-
   const { messages, setMessages, status, sendMessage, error } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
-    initialMessages: initialMsgs
+    initialMessages: [defaultMessage]
   });
+
+  // SDK v6: extract tool parts from parts array
+  const getToolParts = useCallback((m: any): any[] => {
+    if (!m.parts) return [];
+    return m.parts.filter((p: any) =>
+      p.type === 'dynamic-tool' ||
+      p.type === 'tool-call' ||
+      (typeof p.type === 'string' && p.type.startsWith('tool-'))
+    );
+  }, []);
+
+  const processedToolCalls = useRef<Set<string>>(new Set());
+
+  // Restore messages from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(`chat_${agentId}_v2`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.length > 0) {
+          // Pre-populate processed tool calls to prevent duplicate tasks on reload
+          parsed.forEach((m: any) => {
+            const toolParts = getToolParts(m);
+            toolParts.forEach((p: any) => {
+              const toolCallId = p.toolCallId || p.id;
+              if (toolCallId) processedToolCalls.current.add(toolCallId);
+            });
+          });
+          setMessages(parsed);
+        }
+      } catch (e) {}
+    }
+  }, [agentId, setMessages, getToolParts]);
 
   // Save messages on change
   useEffect(() => {
-    if (messages && messages.length > 0) {
+    if (messages && messages.length > 1) {
       localStorage.setItem(`chat_${agentId}_v2`, JSON.stringify(messages));
     }
   }, [messages, agentId]);
@@ -276,6 +305,8 @@ export default function AgentDetailPage() {
         email: connectEmail,
         agentName,
         agentId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        localTime: new Date().toString(),
       }
     });
   };
@@ -289,17 +320,7 @@ export default function AgentDetailPage() {
       .join('');
   };
 
-  // SDK v6: extract tool parts from parts array
-  const getToolParts = (m: any): any[] => {
-    if (!m.parts) return [];
-    return m.parts.filter((p: any) =>
-      p.type === 'dynamic-tool' ||
-      p.type === 'tool-call' ||
-      (typeof p.type === 'string' && p.type.startsWith('tool-'))
-    );
-  };
 
-  const processedToolCalls = useRef<Set<string>>(new Set());
 
   // Listen for AI tool calls to create tasks automatically
   useEffect(() => {

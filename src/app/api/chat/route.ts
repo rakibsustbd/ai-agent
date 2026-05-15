@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 
 export async function POST(req: Request) {
-  const { messages, providerToken, email, agentName, agentId } = await req.json();
+  const { messages, providerToken, email, agentName, agentId, timezone, localTime } = await req.json();
 
   console.log("Chat Request Received:", { 
     messageCount: messages?.length, 
@@ -39,7 +39,8 @@ export async function POST(req: Request) {
     The user's email address is: ${email || 'Unknown'}.
     You have access to tools to read emails, send emails, and check calendar availability.
     Always be professional, concise, and helpful. 
-    Current date/time: ${new Date().toISOString()}`,
+    Current date/time for the user: ${localTime || new Date().toISOString()}.
+    User's Timezone: ${timezone || 'UTC'}. Use this timezone for all scheduling unless specified otherwise.`,
     messages: await convertToModelMessages(filteredMessages),
     stopWhen: stepCountIs(5),
     tools: {
@@ -164,8 +165,8 @@ export async function POST(req: Request) {
              const event = {
                summary,
                description,
-               start: { dateTime: startTime, timeZone: 'UTC' }, 
-               end: { dateTime: endTime, timeZone: 'UTC' },
+               start: { dateTime: startTime, timeZone: timezone || 'UTC' }, 
+               end: { dateTime: endTime, timeZone: timezone || 'UTC' },
                attendees: attendeeEmails?.map((email: string) => ({ email })),
              };
              

@@ -278,8 +278,9 @@ export default function AgentDetailPage() {
           // Pre-populate processed tool calls to prevent duplicate tasks on reload
           parsed.forEach((m: any) => {
             const toolParts = getToolParts(m);
-            toolParts.forEach((p: any) => {
-              const toolCallId = p.toolCallId || p.id;
+            toolParts.forEach((p: any, index: number) => {
+              const toolName = p.toolName || p.name || (typeof p.type === 'string' ? p.type.replace('tool-', '') : '');
+              const toolCallId = p.toolCallId || p.id || `${m.id}-${toolName}-${index}`;
               if (toolCallId) processedToolCalls.current.add(toolCallId);
             });
           });
@@ -291,7 +292,7 @@ export default function AgentDetailPage() {
 
   // Save messages on change
   useEffect(() => {
-    if (messages && messages.length > 1) {
+    if (messages && messages.length > 0) {
       localStorage.setItem(`chat_${agentId}_v2`, JSON.stringify(messages));
     }
   }, [messages, agentId]);
@@ -341,12 +342,13 @@ export default function AgentDetailPage() {
 
     messages.forEach(m => {
       const toolParts = getToolParts(m);
-      toolParts.forEach(part => {
-        const toolName = part.toolName || part.name;
-        const toolCallId = part.toolCallId || part.id;
+      toolParts.forEach((part: any, index: number) => {
+        const toolName = part.toolName || part.name || (typeof part.type === 'string' ? part.type.replace('tool-', '') : '');
+        const toolCallId = part.toolCallId || part.id || `${m.id}-${toolName}-${index}`;
+        const state = part.state || '';
         
-        // Ensure we only process tool calls once
-        if (toolCallId && !processedToolCalls.current.has(toolCallId)) {
+        // Ensure we only process tool calls once they are fully executed
+        if (toolCallId && state === 'output-available' && !processedToolCalls.current.has(toolCallId)) {
           let isTask = false;
           let title = '';
           let status = 'Pending';
@@ -685,10 +687,10 @@ export default function AgentDetailPage() {
                        <div style={{ padding: '14px 18px', background: m.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: m.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: m.role === 'user' ? '4px' : '16px', border: m.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
                            {textContent && <div style={{ whiteSpace: 'pre-wrap' }}>{textContent}</div>}
 
-                           {toolParts.map((part: any) => {
+                           {toolParts.map((part: any, index: number) => {
                              // SDK v6: toolName lives on the part directly
-                             const toolName: string = part.toolName || (typeof part.type === 'string' ? part.type.replace('tool-', '') : '');
-                             const toolCallId: string = part.toolCallId || part.id || toolName;
+                             const toolName: string = part.toolName || part.name || (typeof part.type === 'string' ? part.type.replace('tool-', '') : '');
+                             const toolCallId: string = part.toolCallId || part.id || `${m.id}-${toolName}-${index}`;
                              const state: string = part.state || '';
                              // States: 'input-streaming' | 'input-available' | 'output-available' | 'output-error'
                              const isPending = state === 'input-streaming' || state === 'input-available';

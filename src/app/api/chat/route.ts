@@ -195,6 +195,178 @@ export async function POST(req: Request) {
         execute: async ({ title, priority }): Promise<any> => {
           return { success: true, title, priority };
         }
+      }),
+      createLedger: tool({
+        description: 'Creates a new Google Sheet to act as the Financial Ledger. Use this if the user does not have a spreadsheet yet.',
+        inputSchema: zodSchema(z.object({})),
+        execute: async (): Promise<any> => {
+          if (!providerToken) return { error: 'Not connected to Google. Ask user to connect.' };
+          try {
+            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+            const res = await sheets.spreadsheets.create({
+              requestBody: {
+                properties: { title: 'AgentCore Financial Ledger' },
+                sheets: [
+                  { properties: { title: 'Transactions' } }
+                ]
+              }
+            });
+            const spreadsheetId = res.data.spreadsheetId as string;
+            
+            // Add header row
+            await sheets.spreadsheets.values.update({
+              spreadsheetId,
+              range: 'Transactions!A1:E1',
+              valueInputOption: 'USER_ENTERED',
+              requestBody: {
+                values: [['Date', 'Type', 'Category', 'Description', 'Amount']]
+              }
+            });
+            
+            return { 
+              success: true, 
+              spreadsheetId, 
+              url: res.data.spreadsheetUrl,
+              message: 'Tell the user to save this Spreadsheet ID in their configurations.'
+            };
+          } catch (error: any) {
+            console.error("Sheets Create Error:", error);
+            return { error: 'Failed to create ledger: ' + error.message };
+          }
+        }
+      }),
+      addTransaction: tool({
+        description: 'Log a new transaction (Income or Expense) into the Financial Ledger.',
+        inputSchema: zodSchema(z.object({
+          spreadsheetId: z.string().describe('The ID of the Google Sheet'),
+          date: z.string().describe('Date of transaction (YYYY-MM-DD)'),
+          type: z.enum(['Income', 'Expense']).describe('Type of transaction'),
+          category: z.string().describe('Category (e.g., Marketing, Software, Sales)'),
+          description: z.string().describe('Short description of the transaction'),
+          amount: z.number().describe('Amount as a positive number')
+        })),
+        execute: async ({ spreadsheetId, date, type, category, description, amount }): Promise<any> => {
+          if (!providerToken) return { error: 'Not connected to Google.' };
+          try {
+            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId,
+              range: 'Transactions!A:E',
+              valueInputOption: 'USER_ENTERED',
+              insertDataOption: 'INSERT_ROWS',
+              requestBody: {
+                values: [[date, type, category, description, amount]]
+              }
+            });
+            return { success: true, message: `Added ${type} of $${amount} to Ledger.` };
+          } catch (error: any) {
+            return { error: 'Failed to add transaction: ' + error.message };
+          }
+        }
+      }),
+      queryFinancials: tool({
+        description: 'Read the financial ledger to aggregate totals or find specific transactions.',
+        inputSchema: zodSchema(z.object({
+          spreadsheetId: z.string().describe('The ID of the Google Sheet')
+        })),
+        execute: async ({ spreadsheetId }): Promise<any> => {
+          if (!providerToken) return { error: 'Not connected to Google.' };
+          try {
+            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+            const res = await sheets.spreadsheets.values.get({
+              spreadsheetId,
+              range: 'Transactions!A:E',
+            });
+            const rows = res.data.values;
+            if (!rows || rows.length <= 1) return { transactions: [], summary: "No data found." };
+            
+            // Basic mapping
+            const headers = rows[0];
+            const data = rows.slice(1).map(row => {
+              return {
+                date: row[0] || '',
+                type: row[1] || '',
+                category: row[2] || '',
+                description: row[3] || '',
+                amount: parseFloat(row[4] || '0')
+              };
+            });
+            
+            // Simple aggregation
+            let totalIncome = 0;
+            let totalExpense = 0;
+            data.forEach(t => {
+              if (t.type === 'Income') totalIncome += t.amount;
+              if (t.type === 'Expense') totalExpense += t.amount;
+            });
+            
+            return { 
+              totalIncome, 
+              totalExpense, 
+              netCash: totalIncome - totalExpense,
+              transactions: data 
+            };
+          } catch (error: any) {
+            return { error: 'Failed to query financials: ' + error.message };
+          }
+        }
+      }),
+      checkBalanceAndAlerts: tool({
+        description: 'Analyze the ledger to calculate the current balance, detect anomalies (like sudden large expenses), and generate a cash flow forecast.',
+        inputSchema: zodSchema(z.object({
+          spreadsheetId: z.string().describe('The ID of the Google Sheet')
+        })),
+        execute: async ({ spreadsheetId }): Promise<any> => {
+          if (!providerToken) return { error: 'Not connected to Google.' };
+          try {
+            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+            const res = await sheets.spreadsheets.values.get({
+              spreadsheetId,
+              range: 'Transactions!A:E',
+            });
+            const rows = res.data.values;
+            if (!rows || rows.length <= 1) return { balance: 0, alerts: ["No transaction history found."] };
+            
+            const data = rows.slice(1).map(row => ({
+              date: row[0] || '',
+              type: row[1] || '',
+              category: row[2] || '',
+              description: row[3] || '',
+              amount: parseFloat(row[4] || '0')
+            }));
+            
+            let balance = 0;
+            let expenses = [];
+            data.forEach(t => {
+              if (t.type === 'Income') balance += t.amount;
+              if (t.type === 'Expense') {
+                 balance -= t.amount;
+                 expenses.push(t);
+              }
+            });
+            
+            // Anomaly Detection: An expense larger than 3x the average
+            const avgExpense = expenses.length ? expenses.reduce((a, b) => a + b.amount, 0) / expenses.length : 0;
+            const anomalies = expenses.filter(e => e.amount > avgExpense * 3);
+            const alerts = anomalies.map(a => `Anomaly detected: Large expense of $${a.amount} on ${a.date} for ${a.description}.`);
+            
+            if (balance < 1000) {
+               alerts.push(`Low balance warning: Current balance is $${balance}. Please review upcoming liabilities.`);
+            }
+            if (alerts.length === 0) {
+               alerts.push("No anomalies detected. Cash flow looks stable.");
+            }
+            
+            return { 
+              currentBalance: balance, 
+              averageExpense: avgExpense.toFixed(2),
+              alerts,
+              forecast: `Based on average spending, expect a monthly burn rate of ~$${(avgExpense * 30).toFixed(2)}.`
+            };
+          } catch (error: any) {
+            return { error: 'Failed to check balance: ' + error.message };
+          }
+        }
       })
     }
   });

@@ -71,7 +71,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
             prompt: 'consent',
           } : undefined,
           scopes: provider === 'google' 
-            ? 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events email profile openid' 
+            ? 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/spreadsheets email profile openid' 
             : undefined,
         },
       });

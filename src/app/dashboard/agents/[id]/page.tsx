@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { DefaultChatTransport } from 'ai';
 
-const configTabs = ['Settings', 'Memory', 'Tools', 'Interface'];
+const configTabs = ['Settings', 'Memory', 'Tools', 'Interface', 'Integrations'];
 
 const allSources = [
   { name: 'Google Calendar', icon: Calendar, desc: 'Sync events and availability', category: 'Productivity' },
@@ -228,6 +228,14 @@ export default function AgentDetailPage() {
   const [connectEmail, setConnectEmail] = useState('ahmed.rakib@gmail.com');
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [providerToken, setProviderToken] = useState<string | null>(null);
+  const [ledgerSheetId, setLedgerSheetId] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedLedger = localStorage.getItem(`ledger_${agentId}_v2`);
+      if (savedLedger) setLedgerSheetId(savedLedger);
+    }
+  }, [agentId]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
@@ -319,6 +327,7 @@ export default function AgentDetailPage() {
         agentId,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         localTime: new Date().toString(),
+        spreadsheetId: ledgerSheetId,
       }
     });
   };
@@ -768,6 +777,100 @@ export default function AgentDetailPage() {
                                    <div className="flex-items-center" style={{ gap: '8px' }}>
                                      <CheckCircle2 size={14} color="#10b981" />
                                      <span style={{ fontSize: '11px', color: '#10b981' }}>{output?.success ? 'Action Completed Successfully' : output?.error || 'Executing action...'}</span>
+                                   </div>
+                                 </div>
+                               );
+                             }
+
+                             if (toolName === 'queryFinancials') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                       <div className="flex-items-center" style={{ gap: '8px' }}>
+                                          <Database size={14} color="#3b82f6" />
+                                          <span style={{ fontSize: '11px', fontWeight: '800' }}>FINANCIAL REPORT</span>
+                                       </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                       {output?.transactions ? (
+                                         <>
+                                           <div style={{ display: 'flex', gap: '12px' }}>
+                                             <div style={{ flex: 1, padding: '12px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px' }}>
+                                               <p style={{ fontSize: '10px', opacity: 0.7 }}>Total Income</p>
+                                               <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#10b981' }}>${output.totalIncome?.toFixed(2)}</p>
+                                             </div>
+                                             <div style={{ flex: 1, padding: '12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px' }}>
+                                               <p style={{ fontSize: '10px', opacity: 0.7 }}>Total Expense</p>
+                                               <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#ef4444' }}>${output.totalExpense?.toFixed(2)}</p>
+                                             </div>
+                                             <div style={{ flex: 1, padding: '12px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px' }}>
+                                               <p style={{ fontSize: '10px', opacity: 0.7 }}>Net Cash</p>
+                                               <p style={{ fontSize: '16px', fontWeight: 'bold', color: '#3b82f6' }}>${output.netCash?.toFixed(2)}</p>
+                                             </div>
+                                           </div>
+                                           <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                                             <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                                               <thead>
+                                                 <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left' }}>
+                                                   <th style={{ padding: '8px 4px' }}>Date</th>
+                                                   <th style={{ padding: '8px 4px' }}>Category</th>
+                                                   <th style={{ padding: '8px 4px' }}>Desc</th>
+                                                   <th style={{ padding: '8px 4px', textAlign: 'right' }}>Amount</th>
+                                                 </tr>
+                                               </thead>
+                                               <tbody>
+                                                 {output.transactions.map((t: any, i: number) => (
+                                                   <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                     <td style={{ padding: '8px 4px', opacity: 0.7 }}>{t.date}</td>
+                                                     <td style={{ padding: '8px 4px' }}>{t.category}</td>
+                                                     <td style={{ padding: '8px 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100px' }}>{t.description}</td>
+                                                     <td style={{ padding: '8px 4px', textAlign: 'right', color: t.type === 'Income' ? '#10b981' : '#ef4444' }}>${t.amount?.toFixed(2)}</td>
+                                                   </tr>
+                                                 ))}
+                                               </tbody>
+                                             </table>
+                                           </div>
+                                         </>
+                                       ) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{output?.error || 'No financial data.'}</p>}
+                                    </div>
+                                 </div>
+                               );
+                             }
+
+                             if (toolName === 'checkBalanceAndAlerts') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                    <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                       <div className="flex-items-center" style={{ gap: '8px' }}>
+                                          <DollarSign size={14} color="#f59e0b" />
+                                          <span style={{ fontSize: '11px', fontWeight: '800' }}>CASH FLOW ANALYSIS</span>
+                                       </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                       {output?.alerts ? (
+                                         <>
+                                           <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
+                                             <p style={{ fontSize: '12px', marginBottom: '4px' }}>Current Balance: <strong style={{ color: output.currentBalance < 1000 ? '#ef4444' : '#10b981' }}>${output.currentBalance?.toFixed(2)}</strong></p>
+                                             <p style={{ fontSize: '11px', opacity: 0.7 }}>{output.forecast}</p>
+                                           </div>
+                                           {output.alerts.map((a: string, i: number) => (
+                                             <div key={i} style={{ padding: '8px', background: a.includes('Anomaly') || a.includes('warning') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderRadius: '6px', fontSize: '11px', color: a.includes('Anomaly') || a.includes('warning') ? '#ef4444' : '#10b981' }}>
+                                                {a}
+                                             </div>
+                                           ))}
+                                         </>
+                                       ) : <p style={{ fontSize: '12px', opacity: 0.5 }}>{output?.error || 'No alerts available.'}</p>}
+                                    </div>
+                                 </div>
+                               );
+                             }
+
+                             if (toolName === 'createLedger' || toolName === 'addTransaction') {
+                               return (
+                                 <div key={toolCallId} style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                   <div className="flex-items-center" style={{ gap: '8px' }}>
+                                     <CheckCircle2 size={14} color="#10b981" />
+                                     <span style={{ fontSize: '11px', color: '#10b981' }}>{output?.success ? (output.message || 'Ledger action completed.') : (output?.error || 'Executing ledger action...')}</span>
                                    </div>
                                  </div>
                                );
@@ -1353,6 +1456,38 @@ export default function AgentDetailPage() {
                    </div>
                  )}
 
+                 {activeConfigTab === 'Integrations' && (
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                      <div>
+                         <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '8px' }}>Google Sheets Ledger</h3>
+                         <p className="text-sm" style={{ opacity: 0.5, marginBottom: '24px' }}>Provide the Spreadsheet ID for the Financial Controller to manage your transactions and reporting.</p>
+                         
+                         <div style={{ padding: '16px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.1)', display: 'flex', gap: '16px', marginBottom: '32px' }}>
+                            <Info size={18} style={{ color: '#10b981', flexShrink: 0 }} />
+                            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.5' }}>
+                               The ID is the long string of letters and numbers in your Google Sheets URL. For example: <br />
+                               <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: '4px' }}>https://docs.google.com/spreadsheets/d/<b>[THIS_IS_THE_ID]</b>/edit</code>
+                            </p>
+                         </div>
+
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                            <div>
+                               <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Spreadsheet ID</label>
+                               <input 
+                                 value={ledgerSheetId}
+                                 onChange={(e) => {
+                                   setLedgerSheetId(e.target.value);
+                                   localStorage.setItem(`ledger_${agentId}_v2`, e.target.value);
+                                 }}
+                                 placeholder="e.g. 1BxiMVs0XRYFgwnTE9a3qX"
+                                 style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '10px', padding: '12px 16px', color: 'white', outline: 'none' }} 
+                               />
+                            </div>
+                         </div>
+                      </div>
+                   </div>
+                 )}
+
                  {/* Footer Actions */}
                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '32px', borderTop: '1px solid var(--border-main)' }}>
                     <button className="btn-secondary">Discard changes</button>
@@ -1526,7 +1661,7 @@ export default function AgentDetailPage() {
                            const { error } = await supabase.auth.signInWithOAuth({
                               provider: 'google',
                               options: {
-                                 scopes: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar',
+                                 scopes: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
                                  redirectTo: window.location.origin + window.location.pathname
                               }
                            });

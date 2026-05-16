@@ -336,7 +336,7 @@ export async function POST(req: Request) {
             }));
             
             let balance = 0;
-            let expenses = [];
+            let expenses: any[] = [];
             data.forEach(t => {
               if (t.type === 'Income') balance += t.amount;
               if (t.type === 'Expense') {
